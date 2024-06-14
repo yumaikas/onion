@@ -20,7 +20,7 @@ A Stack language compiled to lua. Aims to be like forth
 - [ ] `fn()`
 - [ ] `fn(**)`
 - [ ] `fn(**/**)`
-- [ ] `@value`
+- [x] `@value`
 - [x] `if .. then`
 - [x] `if .. else .. then`
 - [ ] `do .. loop`
