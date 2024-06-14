@@ -1,6 +1,6 @@
 # onion
 
-A Stack language compiled to lua
+A Stack language compiled to lua. Aims to be like forth
 
 ## Usage
 
@@ -13,10 +13,19 @@ A Stack language compiled to lua
 
 ### Syntaxes:
 
-- `: name ( a b c -- d ) .. ;`
-- `: name { a b c -- d } .. ;`
-- : ( a b c -- d ) .. ;
+- [x] `: name ( a b c -- d ) .. ;`
+- [x] `: name { a b c -- d } .. ;`
+- [x] : ( a b c -- d ) .. ;
+- [x] : { a b c -- d } .. ;
+- [ ] `fn()`
+- [ ] `fn(**)`
+- [ ] `fn(**/**)`
+- [ ] `@value`
 - [x] if .. then
 - [x] if .. else .. then
 - [ ] do .. loop
+- [ ] while .. repeat
 - [ ] for .. each
+- [ ] with ..  
+- [ ] with .. that
+- [ ] 
