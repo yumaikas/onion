@@ -269,15 +269,22 @@ end
 
 local parent = {}
 local t_env = {}
+local anon_fn = {}
 setmetatable(parent, {
     __tostring = function(_) return "key-parent" end
 })
+setmetatable(anon_fn, {
+    __tostring = function(_) return "anon-fn" end
+})
+
 
 local trace = false
 
 function env_(of) return {[parent]=of, [t_env]=true, order={}} end
 
 local ssa_idx = 1
+
+local def_depth=0
 
 local dept = 0
 function compile(toks, defs, code, stack)
@@ -294,7 +301,7 @@ function compile(toks, defs, code, stack)
     -- pp({stack=stack, "compile"})
     local env = env_(defs)
     print("called from: ".. debug.getinfo(2).currentline)
-    pp({env=env, defs=defs})
+    -- pp({env=env, defs=defs})
 
     function get_(name)
         -- pp({name=name})
@@ -310,9 +317,7 @@ function compile(toks, defs, code, stack)
     end
 
     local idx = 1
-    function inc(amt)
-        idx = idx + amt
-    end
+    function iset(to) idx = to end
     local tok
     function nextvar()
         local ret = "__s"..ssa_idx
@@ -330,7 +335,7 @@ function compile(toks, defs, code, stack)
         reverse(assigns)
         for _,var in ipairs(assigns) do
             env[var] = {var=var,ins=0,out=1}
-            code:push({assign=var, to=stack:pop()})
+            code:push({assign=var, value=stack:pop()})
         end
         idx = scan.idx
     end
@@ -338,33 +343,36 @@ function compile(toks, defs, code, stack)
     function op(op)
         local err_info = {op=op, tok, idx, code}
         stack:push({op=op, b=stack:pop(err_info), a=stack:pop(err_info)})
-        inc(1)
+        idx = idx + 1
     end
 
+    pp{toks}
     if trace then pp{idx, toks} end
     while idx <= #toks do
         if trace then pp{tok, idx} end
         tok = toks[idx]
-        -- pp({'dbg',tok, idx})
+
+        pp({'dbg',tok, idx, debug.getinfo(2).currentline})
 
         if get_(tok) ~= nil then
             local expr = get_(tok)
+            pp{EXPR=expr}
             if expr.var then
                 stack:push(expr)
-                inc(1)
+                idx = idx + 1
             elseif expr.fn then
                 local call = {call=expr.fn, args={}, rets={}}
                 for _, a in backwards(expr.inputs) do
-                    table.insert(call.args, pop())
+                    table.insert(call.args, stack:pop())
                 end
                 for _, r in ipairs(expr.outputs) do
                     table.insert(call.rets, nextvar())
                 end
-                table.insert(code, call)
+                code:push(call)
                 for _, r in ipairs(call.rets) do
                     stack:push({var=r})
                 end
-                inc(1)
+                idx = idx + 1
             else
                 pp({expr == parent, tok})
                 error("Unsupported def!")
@@ -385,26 +393,59 @@ function compile(toks, defs, code, stack)
             local var = nextvar()
             code:push({assign=var,new=true,value=stack:peek()})
             stack:push({var=var})
-            inc(1)
+            idx = idx + 1
+        elseif tok:find("^@.+") then
+            local name
+            _,_, name = tok:find("^@(.+)")
+            local val = {var=name}
+            stack:push(val)
+            idx = idx + 1
         elseif tonumber(tok) then
             stack:push({barelit = tonumber(tok)})
-            inc(1)
+            idx = idx + 1
         elseif tok:find('^"') then
             stack:push({strlit=tok})
-            inc(1)
+            idx = idx + 1
+        elseif tok == "table" then
+            stack:push({barelit="{}"})
+            idx = idx + 1
         elseif tok == "{" then
-            local_assigns(idx + 1)
+            local scan = scanner(toks, idx + 1)
+            local assigns = {}
+                
+            for stok in scan:upto("}") do
+                table.insert(assigns, stok)
+            end
+            reverse(assigns)
+            for _,var in ipairs(assigns) do
+                if not get_(var) then
+                    env[var] = {var=var}
+                    code:push({assign=var,new=true,value=stack:pop()})
+                else
+                    code:push({assign=var,value=stack:pop()})
+                end
+            end
+            idx = scan.idx
         elseif tok == ":" then
+            def_depth = def_depth + 1
             local fn = {}
             fn.fn = toks[idx + 1]
             local fenv = env_(env)
-            local scan = scanner(toks, idx + 2)
+            local scan 
+
+            if fn.fn == "{" or fn.fn == "(" then
+                fn.fn = anon_fn
+                scan = scanner(toks, idx + 1)
+            else
+                scan = scanner(toks, idx + 2)
+            end
             local stok = scan:at()
+
             assert(stok == "(" or stok == "{", "Stack effect comment required!")
             scan:go_next()
             local params_to_locals = stok == "{"
             fn.inputs = {}
-            local expr_stack = makestack("Expr stack for "..fn.fn.." definition")
+            local expr_stack = makestack("Expr stack for "..tostring(fn.fn).." definition")
             local body_ast = buffer()
             for stok in scan:upto("--") do
                 if stok == "}" or stok == ")" then
@@ -429,14 +470,11 @@ function compile(toks, defs, code, stack)
             end
             fn.body_toks = {}
             for stok in scan:upto(balanced(':', ';')) do
-                -- if stok == ':' then error("Cannot nest definitions (yet)!") end
                 table.insert(fn.body_toks, stok)
             end
-            -- pp("before body compile")
-            -- pp({fn=fn, expr_stack=expr_stack, fenv=fenv})
             
-            pp{XERDS=fn, fenv=fenv, env=env}
             fn.body = compile(fn.body_toks, fenv, body_ast, expr_stack)
+
             if expr_stack:size() ~= #fn.outputs then
                 pp({ expected=fn.outputs, actual= expr_stack })
                 error("Stack effect mismatch!")
@@ -446,15 +484,22 @@ function compile(toks, defs, code, stack)
                 table.insert(ret,val) 
             end
             fn.body:push(ret)
-            -- pp("after body compile")
-            -- pp({fn=fn})
-            env[parent][fn.fn] = fn
-            table.insert(env[parent].order, fn.fn)
+            if fn.fn ~= anon_fn then
+                env[parent][fn.fn] = fn
+                table.insert(env[parent].order, fn.fn)
+                if def_depth > 0 then
+                    code:push(fn)
+                end
+            else
+                stack:push(fn)
+            end
+
+            pp{fn}
             idx = scan.idx
+            def_depth = def_depth - 1
         elseif tok == "if" then
             local cond = {_if=stack:pop()}
             local scan = scanner(toks, idx + 1)
-            pp{"KIPO", toks}
             local body = buffer():collect(scan:upto(balanced("if", "then"))).output
 
             if t_has_v(body, "else") then
@@ -467,8 +512,8 @@ function compile(toks, defs, code, stack)
                 local s_false = copy_stack("If False Expression", stack)
 
                 local body_true = buffer()
-
                 local arm_true = compile(arms[1], env, body_true, s_true)
+
                 local body_false = buffer()
                 local arm_false = compile(arms[2], env, body_false, s_false)
 
@@ -545,7 +590,9 @@ function emit(ast, output)
         end
     elseif ast.fn then
         output:push('function ')
-        output:push(ast.fn)
+        if ast.fn ~= anon_fn then
+            output:push(ast.fn)
+        end
         output:push('(')
         if #ast.inputs > 0 then
             for inp in each(ast.inputs) do
@@ -582,6 +629,7 @@ function emit(ast, output)
         output:push(" end ")
         
     elseif ast.assign then
+        -- pp(ast)
         if ast.new then
             output:push("local")
         end
@@ -617,6 +665,29 @@ function emit(ast, output)
             output:push(", ")
         end
         output:pop()
+    elseif ast.call then
+        if #ast.rets > 0 then
+            output:push("local ")
+        end
+        for r in each(ast.rets) do
+            output:push(r)
+            output:push(", ")
+        end
+        if #ast.rets > 0 then
+            output:pop()
+            output:push(" = ")
+        end
+        output:push(ast.call)
+        output:push("(")
+        for a in each(ast.args) do
+            emit(a, output)
+            output:push(", ")
+        end
+        if #ast.args > 0 then
+            output:pop()
+        end
+        output:push(")")
+
     else
         pp({'unsupported', output, ast})
         error("Unsupported ast node!")
@@ -628,6 +699,14 @@ function to_lua(ast)
     -- pp(ast)
     emit(ast, output)
     local towrite = output:str():gsub("[ \t]+", " ")
+    --[[ local chk, err=load(towrite)
+    if err then error(err) 
+    else
+        chk()
+    end
+    ]]
+
+
     io.write(towrite)
 end
 
@@ -645,20 +724,34 @@ function main()
             print()
             argIdx = argIdx + 2
         elseif arg[argIdx] == "--compile" then
-            print()
-            print()
+            print() print()
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a")
             local toks = lex(str)
             local env = env_()
-            local ast = compile(toks, env, buffer(), makestack("Expression"))
-            print(str)
-            print()
-            to_lua(env)
+            local stk = makestack("Expression")
+            local ast = compile(toks, env, buffer(), stk)
+            print(str) print()
+            -- to_lua(env)
+            -- pp(ast)
+            for n in ast:each() do
+                to_lua(n)
+            end
+
+            local buf = buffer()
+            buf:push(" return ")
+            for n in stk:each() do
+                emit(n, buf)
+                buf:push(", ")
+            end
+            if stk:size() > 0 then
+                buf:pop()
+            end
+            io.write(buf:str())
+
 
             argIdx = argIdx + 2
-            print()
-            print()
+            print() print()
         else
             error("Unrecognized arg: " .. arg[argIdx])
         end
