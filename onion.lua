@@ -96,6 +96,14 @@ function collect(iter)
     return ret
 end
 
+function last(t, n)
+    local ret = {}
+    for i=#t-4,#t do
+        table.insert(ret, t[i])
+    end
+    return ret
+end
+
 
 function collect_into(t, iter)
     for el in iter do
@@ -132,6 +140,19 @@ function parse_if_then_else(seq)
             table.insert(ret[#ret], iv)
         end
     end
+    return ret
+end
+
+
+function chunk_for_each_loop(seq)
+    local depth = 0
+    local ret = {}
+    for tok in each(seq) do
+        if tok == "for" then depth = depth + 1 end
+        if tok == "each" then depth = depth - 1 end
+        table.insert(ret, tok)
+    end
+
     return ret
 end
 
@@ -189,6 +210,18 @@ function scanner(t, idx)
     function scanner:at()
         return self._fetch(self.subject, self.idx)
     end
+    function scanner:rest()
+        return function()
+            if self.idx <= #self.subject then
+                local ret = self:at()
+                self:go_next()
+                return ret
+            else
+                return nil
+            end
+        end
+    end
+
     function scanner:upto(target)
         local pred
         if type(target) == "function" then
@@ -248,6 +281,17 @@ as_buffer = (function (me)
     function me:each() return each(self.output) end
     function me:size() return #self.output end
     function me:empty() return self:size() == 0 end
+    function me:last(n) 
+        local to_ret = last(self.output, n)
+        return buffer():collect(each(to_ret))
+    end
+    function me:map_to_t(fn)
+        local ret = {}
+        for v in self:each() do
+            table.insert(ret, fn(v))
+        end
+        return ret
+    end
 
     return as_class(me)
 end)({})
@@ -258,10 +302,15 @@ function buffer() return as_buffer({output={}}) end
 
 function makestack(name)
     local me = buffer()
+
     me:on_underflow(function(context) pp(context) error(name.." stack underflow! See log for context.") end)
     function me:copy(name)
         local cp = makestack(name)
         cp.output = tcopy(self.output)
+        -- TODO: track mindepth and maxdepth in a stack copy to know the necessary stack effect
+        -- rather than trying to do suffix change for it
+        cp.mindepth  = #cp.output
+        cp.maxdepth = #cp.output
         return cp
     end
     function me:suffix_difference(other)
@@ -369,8 +418,16 @@ end
 function makeenv(curenv)
     local me = {order={}}
     me[parent] = curenv
+
     return me
 end
+
+function rootenv()
+    local env = makeenv()
+    env["ipairs"] = {fn="ipairs",actual="ipairs", inputs={{var="t"}}, outputs={"f","s","v"}}
+    return env
+end
+
 
 
 local as_expr_state = (function (me) 
@@ -384,6 +441,9 @@ local as_expr_state = (function (me)
     end
     function me:pop_def_info(name) 
         self.def_info:pop(name)
+    end
+    function me:current_def_name()
+        return self.def_info:peek()
     end
 
     function me:push_it(val) self.it_stack:push(val) end
@@ -449,6 +509,9 @@ local as_comp_output = (function(me)
 
     function me:compile(ast) 
         self.code:push(ast) 
+    end
+    function me:compile_iter(iter)
+        self.code:collect(iter)
     end
 
     function me:pushenv() self.env = makeenv(self.env) end
@@ -528,7 +591,7 @@ function compile(input, output, stacks)
         input:tok_next()
     end
 
-    pp{toks}
+    -- pp{toks}
     if trace then pp{idx, toks} end
 
     while input:has_more_toks() do
@@ -543,6 +606,7 @@ function compile(input, output, stacks)
                 stacks:push(expr)
                 input:tok_next()
             elseif expr.fn then
+                pp{"IPAIRS?", expr}
                 local call = {call={barelit=expr.actual}, args={}, rets={}}
                 if expr.needs_it then
                     table.insert(call.args, stacks:peek_it(tok))
@@ -570,6 +634,7 @@ function compile(input, output, stacks)
         elseif tok == "*" then op("*")
         elseif tok == "div" then op("/")
         elseif tok == "and" then op("and")
+        elseif tok == "mod" then op("%")
         elseif tok == "or" then op("or")
         elseif tok == ">" then op(">")
         elseif tok == "<" then op("<")
@@ -627,14 +692,24 @@ function compile(input, output, stacks)
                 to=stacks:pop()})
             input:tok_next()
         elseif tok == "dup" then
-            local var = nextvar()
-            output:compile({assign=var,new=true,value=stacks:peek()})
-            stacks:push({var=var})
+            -- local var = nextvar()
+            -- output:compile({assign=var,new=true,value=stacks:peek()})
+            local to_dup = stacks:pop()
+            stacks:push(to_dup)
+            stacks:push(to_dup)
+            input:tok_next()
+        elseif tok == "nip" then
+            local keep = stacks:pop()
+            stacks:pop()
+            stacks:push(keep)
             input:tok_next()
         elseif tok == "swap" then
             local b, a = stacks:pop(), stacks:pop()
             stacks:push(b)
             stacks:push(a)
+            input:tok_next()
+        elseif tok == "drop" then
+            stacks:pop()
             input:tok_next()
         elseif tok:find("^@.+") then
             local name
@@ -643,12 +718,16 @@ function compile(input, output, stacks)
             stacks:push(val)
             input:tok_next()
         elseif tonumber(tok) then
-            stacks:push({barelit = tonumber(tok)})
+            local var = nextvar()
+            output:compile({assign=var,new=true,value={barelit=tonumber(tok)}})
+            stacks:push({var=var})
             input:tok_next()
         elseif tok:find('^"') then
-            stacks:push({strlit=tok})
+            local var = nextvar()
+            output:compile({assign=var,new=true,{strlit=tok}})
+            stacks:push({var=var})
             input:tok_next()
-        elseif tok:find("[^(]+%(%)") then
+        elseif tok:find("[^(]+%(%)") then -- print(), aka no-args call
             local _,_, name = tok:find("^([^(]+)%(%)$")
             output:compile({call={barelit=name},rets={},args={}})
             input:tok_next()
@@ -746,7 +825,7 @@ function compile(input, output, stacks)
 
             local body_ast = buffer()
             for stok in scan:upto("--") do
-                pp{stok}
+                --pp{stok}
                 if stok == "}" or stok == ")" then
                     error("Missing -- in stack effect definition for " .. fn.fn .. "!")
                 end
@@ -767,11 +846,15 @@ function compile(input, output, stacks)
             fn.outputs = {}
             local end_tok
             if params_to_locals then end_tok = "}" else end_tok = ")" end
+
             into(fn.outputs):collect(scan:upto(end_tok))
             fn.body_toks = collect(scan:upto(balanced(':', ';')))
             fn_output = comp_output(select_keys(output, "env", "def_depth"))
             fn_stacks:push_def_info(fn.fn)
+
+            pp{"BODYFN",fn}
             local body_comp = compile(comp_input(fn.body_toks), fn_output, fn_stacks)
+
             fn_stacks:pop_def_info()
             fn.body = body_comp.code
             if fn.needs_it then
@@ -817,7 +900,8 @@ function compile(input, output, stacks)
                 local diff_false = stacks.stack:suffix_difference(s_false.stack)
 
                 if s_true.stack:size() ~= s_false.stack:size() 
-                    or diff_true:size() ~= diff_false:size() then
+                    --or diff_true:size() ~= diff_false:size()
+                    then
                     pp({
                         body=body,arms=arms,t=s_true,f=s_false,
                         dt=diff_true,df=diff_false,
@@ -855,16 +939,14 @@ function compile(input, output, stacks)
                 end
                 pp{before_if_stack}
                 local diffs = before_if_stack.stack:suffix_difference(stacks.stack)
-                local decl = {decl={}}
-                for v in diffs:each() do
-                    table.insert(decl.decl, nextvar())
-                end
-                -- code:push(decl)
-                for d in each(decl.decl) do
+                local decl = diffs:map_to_t(nextvar)
+
+                for d in each(decl) do
                     output:compile({assign=d,new=true,value=before_if_stack:pop()})
                     if_body:compile({assign=d,value=stacks:pop()})
                 end
-                for d in each(decl.decl) do
+
+                for d in each(decl) do
                     stacks:push({var=d})
                 end
                 -- pp({der=if_body})
@@ -875,7 +957,81 @@ function compile(input, output, stacks)
         elseif tok == "do" then
             error("Do loops not implemented")
         elseif tok == "for" then
-            error("For loops not implemented")
+
+            local scan = input:scan_ahead_by(1)
+
+            local body = buffer():collect(scan:upto(balanced("for", "each"))).output
+
+            local iter_scan = scanner(body, 1)
+            -- pp{iter_scan}
+            local iterator_expr =  buffer():collect(iter_scan:upto("do"))
+            -- pp{iterator_expr}
+            local body_arg_effect = iter_scan:at()
+            -- pp{body_arg_effect}
+            iter_scan:go_next()
+            -- pp{iter_scan:at()}
+            local loop_body = collect(iter_scan:rest())
+            input:goto_scan(scan)
+            local before_iter_expr = stacks:copy("Before Iter Expr")
+            local out_iter = comp_output(select_keys(output, "env", "def_depth"))
+            local iter_input = comp_input(iterator_expr)
+            local iter_body = compile(comp_input(iterator_expr.output), out_iter, stacks)
+            local iter_outputs = before_iter_expr.stack:suffix_difference(stacks.stack)
+
+            output:compile_iter(iter_body.code:each())
+            if iter_outputs:size() > 3 then
+                error(
+                "Too many outputs in iterator expresion for loop in "
+                ..stacks:current_def_name())
+            end
+            function spop() return stacks:pop() end
+         -- : spop \* stacks :pop(\*) ;
+
+            local loop_def = {for_iter=reverse(iter_outputs:map_to_t(spop)), var_expr={}, body={}}
+            if not body_arg_effect:find("^[*_]+$") then
+                error("Invalid for body arg notation: "
+                ..body_arg_effect.." in "..stacks:current_def_name())
+            end
+
+            local before_loop_body_stack_size = stacks.stack:size()
+
+            local before_loop_body_stack = stacks:copy()
+
+            for c in body_arg_effect:gmatch("([_*])") do
+                if c == "_" then
+                    table.insert(loop_def.var_expr, {var="_"})
+                elseif c == "*" then
+                    local v = {var=nextvar()}
+                    table.insert(loop_def.var_expr, v)
+                    stacks:push(v)
+                end
+            end
+
+            local output_loop_body = comp_output(select_keys(output, "env", "def_depth"))
+            local main_loop_body = compile(comp_input(loop_body), output_loop_body, stacks)
+            if not stacks:has_size(before_loop_body_stack_size) then
+                pp{
+                    now=stacks,
+                    before=before_loop_body_stack
+                }
+                error("Unbalanced loop body stack effect!")
+            end
+            
+            local diffs = before_loop_body_stack.stack:suffix_difference(stacks.stack)
+            local decl = diffs:map_to_t(nextvar)
+            pp{"DIFFS",before_loop_body_stack.stack,stacks.stack}
+
+            for d in before_loop_body_stack.stack:each() do
+                main_loop_body:compile({assign=d.var,value=stacks:pop{}})
+            end
+
+            for d in before_loop_body_stack.stack:each() do
+                stacks:push(d)
+            end
+
+            loop_def.body = main_loop_body.code
+            output:compile(loop_def)
+
         else
             pp{tok, output:envkeys()}
 
@@ -893,6 +1049,23 @@ function emit(ast, output)
         for k in each(ast.order) do
             emit(ast[k], output)
         end
+    elseif ast.for_iter then
+        output:push("for ")
+        for var in each(ast.var_expr) do
+            output:push(var.var)
+            output:push(", ")
+        end
+        output:pop() output:push(" in ")
+        for var in each(ast.for_iter) do
+            output:push(var.var)
+            output:push(", ")
+        end
+        output:pop()
+        output:push(" do ")
+        for stmt in ast.body:each() do
+            emit(stmt, output)
+        end
+        output:push(" end ")
     elseif ast.fn then
         output:push('function ')
         if ast.fn ~= anon_fn then
@@ -1045,12 +1218,13 @@ function main()
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a")
             local toks = lex(str)
-            local output = comp_output({env=makeenv()})
+            local output = comp_output({env=rootenv()})
             local input = comp_input(toks)
-            local stacks = expr_state("", "")
+            local stacks = expr_state("toplevel expression", "toplevel subject")
             local ast = compile(input, output, stacks).code
             --pprint(output.def_depth)
-            print(str) print()
+            print(table.concat(toks, " "))
+            -- print(str) print()
             -- to_lua(output.env)
             -- pp(ast)
             for n in ast:each() do
