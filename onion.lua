@@ -1,5 +1,8 @@
 local pprint = require("pprint")
 local whitespace = " \t\r\n"
+local Buffer = require("buffer")
+local iter = require("iter")
+require("ast")
 
 pprint.setup {
     use_tostring = true
@@ -98,7 +101,7 @@ end
 
 function last(t, n)
     local ret = {}
-    for i=#t-4,#t do
+    for i=#t-n,#t do
         table.insert(ret, t[i])
     end
     return ret
@@ -301,48 +304,56 @@ end)({})
 function buffer() return as_buffer({output={}}) end
 
 function makestack(name)
-    local me = buffer()
+    error("Makestack deprecated")
+    local me = { 
+        storage = Buffer() ,
+        min_depth = 0,
+        max_depth = 0,
+        initial_depth = 0 }
 
-    me:on_underflow(function(context) pp(context) error(name.." stack underflow! See log for context.") end)
+    function me:infer_stack_effect()
+        local input_size = self.storage:size() - self.min_depth
+        local output_size = self.storage:size() - self.initial_depth 
+        return input_size, output_size
+    end
+
+    function me:get_effective_diff()
+        local i_size, o_size = self:infer_stack_effect()
+        return o_size - i_size
+    end
+
+    function me:check_balanced_effect()
+        local i_size, o_size = self:infer_stack_effect()
+        return i_size == o_size
+    end
+
+    function me:push(value)
+        self.storage:push(value)
+        self.max_depth = math.max(
+            self.max_depth, 
+            self.storage:size()
+        )
+    end
+
+    function me:peek() 
+        return self.storage:peek()
+    end
+
+    function me:pop(ctx)
+        local ret = self.storage:pop(ctx)
+        self.min_depth = math.min(self.min_depth, self.storage:size())
+        return ret
+    end
+        
     function me:copy(name)
         local cp = makestack(name)
         cp.output = tcopy(self.output)
         -- TODO: track mindepth and maxdepth in a stack copy to know the necessary stack effect
         -- rather than trying to do suffix change for it
-        cp.mindepth  = #cp.output
-        cp.maxdepth = #cp.output
+        cp.min_depth  = cp.storage:size()
+        cp.max_depth = cp.storage:size()
+        cp.inital_depth = cp.storage:size()
         return cp
-    end
-    function me:suffix_difference(other)
-        -- me: a b c
-        -- other: a e f
-        -- returns e f
-        --
-        -- me: a
-        -- other: a b c
-        -- returns b c
-        --
-        --me: a b c
-        --other: b
-        --returns b
-        --
-        -- me: a b c
-        -- other: a
-        -- returns {}
-        -- 
-        local idx = #other.output + 1
-        for i=1,math.max(#other.output,#self.output) do
-            if other.output[i] ~= self.output[i] then
-                idx = i
-                break
-            end
-        end
-        local ret = buffer()
-        for i=idx,#other.output do
-            ret:push(other.output[i])
-        end
-        return ret
-
     end
 
     return me
@@ -424,7 +435,7 @@ end
 
 function rootenv()
     local env = makeenv()
-    env["ipairs"] = {fn="ipairs",actual="ipairs", inputs={{var="t"}}, outputs={"f","s","v"}}
+    env["ipairs"] = {fn="ipairs",actual="ipairs", inputs={Var("t")}, outputs={"f","s","v"}}
     return env
 end
 
@@ -559,7 +570,7 @@ function comp_output(opts)
     return as_comp_output({
         def_depth = opts.def_depth or -1,
         env = opts.env or makeenv(),
-        code = opts.code or buffer(),
+        code = opts.code or Buffer(),
     })
 end
 
@@ -622,7 +633,7 @@ function compile(input, output, stacks)
                 end
                 output:compile(call)
                 for _, r in ipairs(call.rets) do
-                    stacks:push({var=r})
+                    stacks:push(Var(r))
                 end
                 input:tok_next()
             else
@@ -643,7 +654,7 @@ function compile(input, output, stacks)
         elseif tok == ">=" then op(">=")
         elseif tok == "neq?" then op("~=")
         elseif tok == "[" then
-            local itvar ={var= nextvar()}
+            local itvar = Var(nextvar())
             output:compile({assign=itvar.var,new=true,value=stacks:pop()})
             stacks:push_it(itvar)
             input:tok_next()
@@ -656,7 +667,7 @@ function compile(input, output, stacks)
         elseif tok == "it" then
             -- if stacks.it_stack:empty() then
                -- output:mark_needs_it()
-                --stacks:push_it({var="it"})
+                --stacks:push_it(Var("it"))
                 -- output:compile({it=true})
             -- end
             stacks:push(stacks:peek_it())
@@ -671,7 +682,7 @@ function compile(input, output, stacks)
             _,_, name = tok:find("([^>]+)>>")
             -- if stacks.it_stack:empty() then
               --  output:mark_needs_it()
-               -- stacks:push_it({var="it"})
+               -- stacks:push_it(Var("it"))
             -- end
             stacks:push({prop_get=name,value=stacks:peek_it()})
             input:tok_next()
@@ -680,7 +691,7 @@ function compile(input, output, stacks)
             _,_, name = tok:find("^>>(.+)")
             -- if stacks.it_stack:empty() then
               --  output:mark_needs_it()
-               -- stacks:push_it({var="it"})
+               -- stacks:push_it(Var("it"))
             -- end
             output:compile({prop_set=name,on=stacks:peek_it(),to=stacks:pop()})
             input:tok_next()
@@ -714,18 +725,18 @@ function compile(input, output, stacks)
         elseif tok:find("^@.+") then
             local name
             _,_, name = tok:find("^@(.+)")
-            local val = {var=name}
+            local val = Var(name)
             stacks:push(val)
             input:tok_next()
         elseif tonumber(tok) then
             local var = nextvar()
             output:compile({assign=var,new=true,value={barelit=tonumber(tok)}})
-            stacks:push({var=var})
+            stacks:push(Var(var))
             input:tok_next()
         elseif tok:find('^"') then
-            local var = nextvar()
-            output:compile({assign=var,new=true,{strlit=tok}})
-            stacks:push({var=var})
+            local var = Var(nextvar())
+            output:compile({assign=var.var,new=true,{strlit=tok}})
+            stacks:push(Var(var))
             input:tok_next()
         elseif tok:find("[^(]+%(%)") then -- print(), aka no-args call
             local _,_, name = tok:find("^([^(]+)%(%)$")
@@ -770,7 +781,7 @@ function compile(input, output, stacks)
                 end
                 output:compile(call)
                 for r in each(call.rets) do
-                    stacks:push({var=r})
+                    stacks:push(Var(r))
                 end
             else
                 error("Could not parse ffi call "..tok)
@@ -779,7 +790,7 @@ function compile(input, output, stacks)
         elseif tok == "table" then
             local new = nextvar()
             output:compile({assign=new,new=true,value={barelit="{}"}})
-            stacks:push({var=new})
+            stacks:push(Var(new))
             input:tok_next()
         elseif tok == "{" then
             local scan = input:scan_ahead_by(1)
@@ -791,7 +802,7 @@ function compile(input, output, stacks)
             reverse(assigns)
             for _,var in ipairs(assigns) do
                 if not output:envget(var) then
-                    output:def(var, {var=var})
+                    output:def(var, Var(var))
                     output:compile({assign=var,new=true,value=stacks:pop()})
                 else
                     output:compile({assign=var,value=stacks:pop()})
@@ -823,7 +834,7 @@ function compile(input, output, stacks)
                 "It stack for "..tostring(fn.fn).." def"
             )
 
-            local body_ast = buffer()
+            local body_ast = Buffer()
             for stok in scan:upto("--") do
                 --pp{stok}
                 if stok == "}" or stok == ")" then
@@ -831,13 +842,13 @@ function compile(input, output, stacks)
                 end
                 if stok == "#"  then
                     fn.needs_it = true
-                    fn_stacks:push_it({var="it"})
+                    fn_stacks:push_it(Var("it"))
                 elseif params_to_locals then
-                    local param = {var=stok}
-                    table.insert(fn.inputs, {var=stok})
+                    local param = Var(stok) 
+                    table.insert(fn.inputs, Var(stok))
                     output:def(stok, param)
                 else
-                    local param = {var="p"..(#fn.inputs + 1)}
+                    local param = Var("p"..(#fn.inputs + 1))
                     table.insert(fn.inputs, param)
                     fn_stacks:push(param)
                 end
@@ -858,13 +869,13 @@ function compile(input, output, stacks)
             fn_stacks:pop_def_info()
             fn.body = body_comp.code
             if fn.needs_it then
-                table.insert(fn.inputs, 1, {var="it"})
+                table.insert(fn.inputs, 1, Var("it"))
             end
             if not fn_stacks:has_size(#fn.outputs) then
                 pp({fn=fn,expected=fn.outputs, actual= fn_stacks })
                 error("Stack effect mismatch in "..tostring(fn.fn).."!")
             end
-            local ret = {ret=buffer()}
+            local ret = {ret=Buffer()}
             ret.ret:collect(fn_stacks.stack:each())
             fn.body:push(ret)
             if fn.fn ~= anon_fn then
@@ -879,7 +890,7 @@ function compile(input, output, stacks)
         elseif tok == "if" then
             local cond = {_if=stacks:pop()}
             local scan = input:scan_ahead_by(1)
-            local body = buffer():collect(scan:upto(balanced("if", "then"))).output
+            local body = iter.collect(scan:upto(balanced("if", "then")))
 
             if t_has_v(body, "else") then
                 local arms = parse_if_then_else(body)
@@ -922,7 +933,7 @@ function compile(input, output, stacks)
                     local err_ctx = {tok, code, trying_to_assign=d}
                     arm_true:compile({assign=d, value=s_true:pop(err_ctx)})
                     arm_false:compile({assign=d, value=s_false:pop(err_ctx)})
-                    stacks:push({var=d})
+                    stacks:push(Var(d))
                 end
                 cond.when_true = arm_true.code
                 cond.when_false = arm_false.code
@@ -947,7 +958,7 @@ function compile(input, output, stacks)
                 end
 
                 for d in each(decl) do
-                    stacks:push({var=d})
+                    stacks:push(Var(d))
                 end
                 -- pp({der=if_body})
                 cond.when_true = if_body.code
@@ -999,9 +1010,9 @@ function compile(input, output, stacks)
 
             for c in body_arg_effect:gmatch("([_*])") do
                 if c == "_" then
-                    table.insert(loop_def.var_expr, {var="_"})
+                    table.insert(loop_def.var_expr, Var("_"))
                 elseif c == "*" then
-                    local v = {var=nextvar()}
+                    local v = Var(nextvar())
                     table.insert(loop_def.var_expr, v)
                     stacks:push(v)
                 end
