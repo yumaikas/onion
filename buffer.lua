@@ -26,7 +26,7 @@ function Buffer:concat(sep) table.concat(self.items, sep) return end
 function Buffer:str() return self:concat("") end
 function Buffer:size() return #self.items end
 function Buffer:empty() return self:size() == 0 end
-function Buffer:pop_status() 
+function Buffer:pop_check() 
     if #self.items == 0 then
         return false, nil
     else
@@ -34,10 +34,8 @@ function Buffer:pop_status()
     end
 end
 
-function Buffer:items() return self.items end
-
 function Buffer:pop_throw(msg) 
-    local ok, item = self:pop_status()
+    local ok, item = self:pop_check()
     if not ok then
         error(msg)
     else

@@ -55,7 +55,7 @@ Fn = Ast:extend()
 function Fn:new(name, body, inputs, outputs)
     self.fn = name
     self.body = body or {}
-    self.input = inputs or {}
+    self.inputs = inputs or {}
     self.outputs = outputs or {}
 end
 
@@ -84,4 +84,21 @@ function PropGet:new(on, prop)
 end
 
 For = Ast:extend()
+
+function mangle_name(n)
+    n = n:gsub("[#/\\-]", {
+        ['#'] = "_hash_",
+        ['/'] = "_slash_",
+        ['\\'] = '_backslash_',
+        ['-'] = '_',
+    })
+    if n:find("^[^_a-zA-Z]") then
+        n = "__" .. n
+    end
+    return n
+end
+
+function handle_escapes(s)
+    return s:gsub("\\([tnr])", {t="\t",n="\n",r="\r"})
+end
 
