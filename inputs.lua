@@ -12,7 +12,6 @@ function CompilerInput:tok() return self.tokens[self.token_idx] end
 function CompilerInput:tok_at(idx) return self.tokens[idx] end
 function CompilerInput:tok_next() self.token_idx = self.token_idx + 1 end
 function CompilerInput:has_more_tokens() 
-	pp(self)
 	return self.token_idx <= #self.tokens
  end
 function CompilerInput:goto_scan(scan) self.token_idx = scan.idx end

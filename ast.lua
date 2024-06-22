@@ -38,6 +38,7 @@ end
 
 function Declare:add(name)
     table.insert(self.decl, name)
+    return self
 end
 
 If = Ast:extend()
@@ -54,6 +55,7 @@ Fn = Ast:extend()
 
 function Fn:new(name, body, inputs, outputs)
     self.fn = name
+    self.actual = mangle_name(name)
     self.body = body or {}
     self.inputs = inputs or {}
     self.outputs = outputs or {}
@@ -85,11 +87,24 @@ end
 
 For = Ast:extend()
 
+function For:new()
+    self.for_iter = {}
+    self.var_expr = {}
+    self.body = {}
+end
+
+
+function For:add_iter_var(v)
+    table.insert(self.for_iter, v)
+end
+
+
 function mangle_name(n)
-    n = n:gsub("[#/\\-]", {
+    n = n:gsub("[?#/\\-]", {
         ['#'] = "_hash_",
         ['/'] = "_slash_",
         ['\\'] = '_backslash_',
+        ['?'] = '_question_',
         ['-'] = '_',
     })
     if n:find("^[^_a-zA-Z]") then

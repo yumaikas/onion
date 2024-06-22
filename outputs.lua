@@ -14,11 +14,14 @@ function Env:def(name, val)
 	self.kv[name] = val
 end
 
+function Env:defn(name, val)
+	self.parent.kv[name] = val
+end
+
 function Env:get(key)
 	local val = self.kv[key] 
 	if val then return val end
 	if not val and self.parent then
-		pp{self.parent}
 		return self.parent:get(key)
 	end
 	return nil
@@ -51,10 +54,10 @@ function CompilerOutput:compile_iter(iter) self.code:collect(iter) end
 function CompilerOutput:pushenv() self.env = Env(self.env) end
 function CompilerOutput:popenv() self.env = self.env.parent end
 function CompilerOutput:def(name, val) self.env:def(name, val) end
+function CompilerOutput:defn(name, val) self.env:defn(name, val) end
 function CompilerOutput:mark_needs_it() self.needs_it = true end
 function CompilerOutput:is_toplevel() return self.def_depth == 0 end
 function CompilerOutput:envget(key) 
-	pp(tostring(self.env.get))
 	return self.env:get(key) 
 end
 function CompilerOutput:envkeys() return self.env:keys() end

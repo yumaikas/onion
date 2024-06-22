@@ -1,4 +1,17 @@
+local Object = require("classic")
 local iter = {}
+
+local Table = Object:extend()
+
+function Table.__add(t, v)
+    table.insert(t, v)
+    return t
+end
+
+function iter.t()
+    return Table()
+end
+
 function iter.each(t)
     local i = 1
     return function()

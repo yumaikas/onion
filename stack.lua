@@ -13,7 +13,6 @@ ExprStack = Stack:extend()
 
 Barrier = Object:extend()
 
-
 function Barrier:new(nextvar)
     self.nextvar = nextvar
     self.vars = {}
@@ -37,41 +36,17 @@ end
 function ExprStack:new(name)
     self.name = name
     self.storage = Buffer()
-    self:reset_effect()
 end
 
-function ExprStack:reset_effect()
-    self.min_depth = self.storage:size()
-    self.max_depth = self.storage:size()
-    self.initial_depth = self.storage:size()
-end
-
-function ExprStack:infer_effect()
-    local inputs = self.initial_depth - self.min_depth
-    local outputs = self.storage:size() - self.min_depth
-    return inputs, outputs
-end
-
-function ExprStack:is_effect_balanced()
-    local i, o = self:infer_effect()
-    return i == o
-end
-
-function ExprStack:matches_effect(inputs, outputs)
-    local i, o = self:infer_effect()
-    return i == inputs and o == outputs
-end
 
 function ExprStack:copy(name)
     local newStack = ExprStack(name)
     newStack.name = name
     newStack.storage = self.storage:copy()
-    newStack:reset_effect()
     return newStack
 end
 
 function ExprStack:pop()
-    pp(self.storage)
     local ok, item = self.storage:pop_check()
     if not ok then
         error(self.name.." stack underflow!")
@@ -89,7 +64,6 @@ end
 
 function ExprStack:push(value) 
     self.storage:push(value) 
-    self.max_depth = math.max(self.max_depth, self.storage:size())
 end
 
 
@@ -180,7 +154,7 @@ function ExprState:has_size(size)
     pp(self.stack)
     return self.stack:size() == size 
 end
-function ExprStack:barrier(nextvar) 
+function ExprState:barrier(nextvar) 
     local barrier = Barrier(nextvar)
     self.stack:push(barrier)
     return barrier

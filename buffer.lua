@@ -19,10 +19,14 @@ function Buffer.from(...)
     return Buffer({...})
 end
 
+function Buffer.__add(b, v)
+    b:push(v)
+    return v
+end
 function Buffer:push(val) table.insert(self.items, val) return self end
 function Buffer:peek() return self.items[#self.items] end
 function Buffer:each() return iter.each(self.items) end
-function Buffer:concat(sep) table.concat(self.items, sep) return end
+function Buffer:concat(sep) return table.concat(self.items, sep) end
 function Buffer:str() return self:concat("") end
 function Buffer:size() return #self.items end
 function Buffer:empty() return self:size() == 0 end
