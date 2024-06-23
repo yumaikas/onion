@@ -15,6 +15,10 @@ function Buffer:new(items)
     self.items = items or {}
 end
 
+function Buffer:__tostring()
+    return "Buffer"
+end
+
 function Buffer.from(...)
     return Buffer({...})
 end

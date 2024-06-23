@@ -10,6 +10,7 @@ require("inputs")
 require("stack")
 require("scanner")
 
+local pfmt = pprint.pformat
 pprint.setup {
     -- use_tostring = true
 }
@@ -69,7 +70,7 @@ local trace = false
 local ssa_idx = 1
 
 function nextvar()
-    local ret = "__s"..ssa_idx
+    local ret = "_"..ssa_idx
     ssa_idx = ssa_idx + 1
     return ret
 end
@@ -77,15 +78,19 @@ end
 function compile_op(op, input, _output, stacks)
     local err_info = {op=op, tok, idx, code}
     -- pp{OP=op}
-    stacks:push({op=op, b=stacks:pop(err_info), a=stacks:pop(err_info)})
+    local b = stacks:pop(err_info)
+    local a = stacks:pop(err_info)
+    stacks:push(Op(op, a, b))
     input:tok_next()
     return _output, Effect({'a','b'}, {'c'})
 end
 
+local pre = Buffer()
+
 function compile(input, output, stacks)
-    -- pp{"COMPILE", output.def_depth}
-    output:enter()
-    function dbg()
+    io.write(pre:str()) output:enter()
+    pre:push("    ")
+    local function dbg()
         pp({
             input=input,
             output=output,
@@ -95,29 +100,27 @@ function compile(input, output, stacks)
     -- print("Compile called from: ".. debug.getinfo(2).currentline)
     -- pp({env=env, defs=defs})
 
-    function nextvar()
-        local ret = "__s"..ssa_idx
-        ssa_idx = ssa_idx + 1
-        return ret
-    end
     local tok
     local total_effect = Effect({}, {})
-    function add_effect(a, b)
-        total_effect = total_effect..Effect(a, b)
+    local function add_effect(a, b, ctx)
+        local eff = Effect(a, b)
+        total_effect = total_effect..eff
+        print(pre:str().."a", ctx, tok, total_effect, eff)
     end
+    local function merge_effect(eff, ctx)
+        total_effect = total_effect .. eff
+        print(pre:str().."m", ctx, tok, total_effect, eff)
+    end
+
     local stack_height = stacks.stack:size()
 
-    function op(of)
+    local function op(of)
         local _, effect = compile_op(of, input, output, stacks)
-        total_effect = total_effect .. effect
+        merge_effect(effect, of)
     end
-
-    -- pp{toks}
-    if trace then pp{idx, toks} end
 
     while input:has_more_tokens() do
         tok = input:tok()
-        io.write("\nBEFORE ", tok, " ", tostring(total_effect), " -- ")
 
         if trace then pp{tok} end
         -- pp(output)
@@ -127,10 +130,10 @@ function compile(input, output, stacks)
             if expr.var then
                 stacks:push(expr)
                 input:tok_next()
-                add_effect({}, {expr.var})
+                add_effect({}, {expr.var}, "var")
             elseif expr.fn then 
                 local call_eff = Effect({}, {})
-                local call = {call={barelit=expr.actual}, args={}, rets={}}
+                local call = Call(Barelit(expr.actual)) 
                 if expr.needs_it then
                     table.insert(call.args, stacks:peek_it(tok))
                     table.remove(call.args, 1)
@@ -150,12 +153,13 @@ function compile(input, output, stacks)
                 for r in iter.each(call.rets) do
                     stacks:push(Var(r))
                 end
-                total_effect = total_effect .. call_eff
+                merge_effect(call_eff, "call")
                 input:tok_next()
             else
                 pp({expr, tok})
                 error("Unsupported def!")
             end
+        elseif tok == "[STOP]" then error("[STOP]")
         elseif tok == "+" then op("+")
         elseif tok == "-" then op("-")
         elseif tok == "*" then op("*")
@@ -171,112 +175,97 @@ function compile(input, output, stacks)
         elseif tok == "neq?" then op("~=")
         elseif tok == "[" then
             local itvar = Var(nextvar())
-            output:compile({assign=itvar.var,new=true,value=stacks:pop()})
+            output:compile(Assign(itvar.var, stacks:pop(), true))
             stacks:push_it(itvar)
             input:tok_next()
-            add_effect({'it'}, {})
+            add_effect({'it'}, {}, "it<")
         elseif tok == "]" then
             stacks:push(stacks:pop_it())
             input:tok_next()
-            add_effect({}, {'it'})
+            add_effect({}, {'it'}, "it>")
         elseif tok == "]." then
             stacks:pop_it()
             input:tok_next()
         elseif tok == "it" then
-            -- if stacks.it_stack:empty() then
-               -- output:mark_needs_it()
-                --stacks:push_it(Var("it"))
-                -- output:compile({it=true})
-            -- end
             stacks:push(stacks:peek_it())
             input:tok_next()
-            add_effect({}, {'it'})
+            add_effect({}, {'it'}, "it")
         elseif tok:find("^%.") then
             local prop 
             _, _, prop = tok:find("^%.(.+)")
-            stacks:push({prop_get=prop,value=stacks:pop()})
-            add_effect({'obj'}, {'propval'})
+            stacks:push(PropGet(stacks:pop(), prop)) 
+            add_effect({'obj'}, {'propval'}, "getter: "..prop)
             input:tok_next()
         elseif tok:find("[^>]+>>$") then
             local name
             _,_, name = tok:find("([^>]+)>>")
-            stacks:push({prop_get=name,value=stacks:peek_it()})
-            add_effect({}, {'propval'})
+            stacks:push(PropGet(stacks:peek_it(), name))
+            add_effect({}, {'propval'}, "it-getter:"..name)
             input:tok_next()
         elseif tok:find("^>>.+") then
             local name
             _,_, name = tok:find("^>>(.+)")
-            -- if stacks.it_stack:empty() then
-              --  output:mark_needs_it()
-               -- stacks:push_it(Var("it"))
-            -- end
-            add_effect({'propval'}, {})
-            output:compile({prop_set=name,on=stacks:peek_it(),to=stacks:pop()})
+            add_effect({'propval'}, {}, "it-setter: "..name)
+            output:compile(PropSet(name, stacks:peek_it(), stacks:pop()))
             input:tok_next()
         elseif tok:find("^>.+") then
             _,_, name = tok:find("^>(.+)")
-            output:compile({
-                prop_set=name,
-                on=stacks:pop(),
-                to=stacks:pop()})
+            output:compile(PropSet(name, stacks:pop(), stacks:pop()))
             input:tok_next()
-            add_effect({'obj','propval'}, {})
+            add_effect({'obj','propval'}, {}, "setter: "..name)
         elseif tok == "dup" then
-            -- local var = nextvar()
-            -- output:compile({assign=var,new=true,value=stacks:peek()})
-            local to_dup = stacks:pop()
             stacks:push(to_dup)
             stacks:push(to_dup)
             input:tok_next()
-            add_effect({'x'}, {'x','x'})
+            add_effect({'x'}, {'x','x'}, "dup")
         elseif tok == "nip" then
             local keep = stacks:pop()
             stacks:pop()
             stacks:push(keep)
             input:tok_next()
-            add_effect({'a', 'b'}, {'b'})
+            add_effect({'a', 'b'}, {'b'}, "nip")
         elseif tok == "swap" then
             local b, a = stacks:pop(), stacks:pop()
             stacks:push(b)
             stacks:push(a)
             input:tok_next()
-            add_effect({'a', 'b'}, {'b', 'a'})
+            add_effect({'a', 'b'}, {'b', 'a'}, "swap")
         elseif tok == "drop" then
             stacks:pop()
             input:tok_next()
-            add_effect({'a', 'b'}, {'a'})
+            add_effect({'a', 'b'}, {'a'}, "drop")
         elseif tok:find("^@.+") then
             local name
             _,_, name = tok:find("^@(.+)")
             local val = Var(name)
             stacks:push(val)
             input:tok_next()
-            add_effect({}, {name})
+            add_effect({}, {name}, "litname")
         elseif tonumber(tok) then
             local var = nextvar()
-            output:compile({assign=var,new=true,value={barelit=tonumber(tok)}})
+            output:compile(Assign(var, Barelit(tonumber(tok)), true))
             stacks:push(Var(var))
-            add_effect({}, {var})
+            add_effect({}, {var}, "number")
             input:tok_next()
         elseif tok:find('^"') then
             local var = Var(nextvar())
-            output:compile({assign=var.var,new=true,{strlit=tok}})
+            output:compile(Assign(var, Strlit(tonumber(tok)), true))
             stacks:push(Var(var))
-            add_effect({}, {var})
+            add_effect({}, {var}, "strlit")
             input:tok_next()
         elseif tok:find("[^(]+%(%)") then -- print(), aka no-args call
             local _,_, name = tok:find("^([^(]+)%(%)$")
-            output:compile({call={barelit=name},rets={},args={}})
+            output:compile(Call(Barelit(name)))
             -- Has no stack effect
             input:tok_next()
         elseif tok:find("%(#?[*\\]+%)$") then ---
             local _, _, name, effect = tok:find("([^(]+)%((#?[*\\]+)%)$")
 
-            local call = {call={},args={},rets={}}
+            local call = Call("")
             if name:find("^%.") then
-                call.call = {prop_get=name:sub(2),value=stacks:pop()}
+                call.call = PropGet(stacks:pop(), name:sub(2)) 
             else
-                call.call = {barelit=name}
+                call.call = Barelit(name) 
             end
             if effect:find("^#") then
                 table.insert(call.args, stacks:peek_it(tok))
@@ -299,55 +288,56 @@ function compile(input, output, stacks)
                 local targs = {}
                 for i=1,#args do
                     table.insert(targs, stacks:pop())
+                    call_eff:add_in('arg'..i)
                 end
                 iter.into(call.args):collect(iter.backwards(targs))
 
                 for i=1,#rets do
-                    call_eff.add_in('arg'..i)
                     table.insert(call.rets,nextvar())
                 end
                 output:compile(call)
-                for r in each(call.rets) do
+                for r in iter.each(call.rets) do
                     call_eff:add_out(r)
                     stacks:push(Var(r))
                 end
             else
                 error("Could not parse ffi call "..tok)
             end
-            total_effect = total_effect .. call_eff
+            merge_effect(call_eff, "ffi-call")
             input:tok_next()
         elseif tok == "table" then
             local new = nextvar()
-            output:compile({assign=new,new=true,value={barelit="{}"}})
+            output:compile(Assign(new, Barelit("{}"), true))
             stacks:push(Var(new))
-            add_effect({}, {'table'})
+            add_effect({}, {'table'}, "tblnew")
             input:tok_next()
         elseif tok == "{" then
             local scan = input:scan_ahead_by(1)
             local assigns = {}
-                
             for stok in scan:upto("}") do
                 table.insert(assigns, stok)
             end
-            reverse(assigns)
-            for _,var in ipairs(assigns) do
+            iter.reverse(assigns)
+            for var in iter.each(assigns) do
                 if not output:envget(var) then
                     output:def(var, Var(var))
-                    output:compile({assign=var,new=true,value=stacks:pop()})
+                    output:compile(Assign(var, stacks:pop(), true))
                 else
-                    output:compile({assign=var,value=stacks:pop()})
+                    output:compile(Assign(var, stacks:pop()))
                 end
             end
-            add_effect(iter.copy(assigns), {})
+            add_effect(iter.copy(assigns), {}, "locals")
             input:goto_scan(scan)
         elseif tok == ":" then
-            local fn = {}
-            fn.fn =  input:tok_at(input.token_idx + 1)
-            fn.actual = mangle_name(fn.fn)
+            local fn_name = input:tok_at(input.token_idx + 1)
+            local fn = Fn(fn_name)
+
             output:pushenv()
-            local scan 
             local is_anon = fn.fn == "{" or fn.fn == "("
-            scan = input:scan_ahead_by(cond(is_anon, 1, 2))
+            if is_anon then
+                fn.fn = AnonFnName
+            end
+            local scan = input:scan_ahead_by(cond(is_anon, 1, 2))
             local stok = scan:at()
 
             assert(stok == "(" or stok == "{", "Stack effect comment required!")
@@ -390,38 +380,42 @@ function compile(input, output, stacks)
 
             iter.into(fn.outputs):collect(scan:upto(end_tok))
             fn.body_toks = iter.collect(scan:upto(balanced(':', ';')))
-            fn_stacks:push_def_info(fn.fn)
-
-            local body_comp, body_eff = compile(CompilerInput(fn.body_toks), output:derived(), fn_stacks)
+            -- fn_stacks:push_def_info(fn.fn)
+            local _input_ = CompilerInput(fn.body_toks)
+            local _output_ = output:derived()
+            local body_comp, body_eff = compile(_input_,_output_, fn_stacks)
             local comb_eff = arg_eff..body_eff
-            print(comb_eff)
-            print(arg_eff)
-            print(body_eff)
+            print(pre:str().."XRD", body_eff)
+            print(pre:str().."def", comb_eff,arg_eff,body_eff, pfmt(fn.body_toks), pfmt(fn.inputs), pfmt(fn.outputs))
             comb_eff:assert_matches_depths(#fn.inputs, #fn.outputs, fn.fn)
-            fn_stacks:pop_def_info()
+            -- fn_stacks:pop_def_info()
             fn.body = body_comp.code
             if fn.needs_it then table.insert(fn.inputs, 1, Var("it")) end
-            total_effect = total_effect..arg_eff..body_eff
-            local ret = {ret=Buffer()}
+            -- merge_effect(comb_eff, "strange-def?")
+            local ret = Return() 
 
             for val in fn_stacks.stack:each() do
                 if not instanceof(val, Barrier) then
-                    ret.ret:push(val)
+                    ret:push(val)
                 end
             end
-            fn.body:push(ret)
+            fn.body:compile(ret)
             if fn.fn ~= AnonFnName then
                 output:compile(fn)
                 output:defn(fn.fn, fn)
             else
                 stacks:push(fn)
-                add_effect({}, {'anon_fn'})
+                add_effect({}, {'anon_fn'}, "anon_fn")
             end
             input:goto_scan(scan)
             output:popenv()
+            if output:is_toplevel() then
+                print() print() print()
+                ssa_idx = 1
+            end
         elseif tok == "if" then
-            local cond = {_if=stacks:pop()}
-            total_effect = total_effect..Effect({'cond'}, {})
+            local cond = stacks:pop() 
+            add_effect({'cond'}, {}, "if-cond")
             local scan = input:scan_ahead_by(1)
             local body = iter.collect(scan:upto(balanced("if", "then")))
 
@@ -442,7 +436,6 @@ function compile(input, output, stacks)
                 -- Declare the destination variables for the if/else branches
                 for a in iter.each(barrier.assigns) do output:compile(a) end
                 local bar_vars = iter.copy(barrier.vars)
-                pp{bar_vars, eff_true}
                 for o=1,#eff_true.out_eff do
                     local v = table.remove(bar_vars) 
                     if not v then
@@ -454,14 +447,16 @@ function compile(input, output, stacks)
                     stacks:push(v)
                 end
 
-                cond.when_true = arm_true.code
-                cond.when_false = arm_false.code
-                output:compile(cond)
-                total_effect = total_effect..eff_true
+                output:compile(If(cond, arm_true.code, arm_false.code))
+                print(pre:str().."true_eff", eff_true)
+                print(pre:str().."false_eff", eff_false)
+                merge_effect(eff_true, "if-else")
+                print("der")
             else
                 local barrier = stacks:barrier(nextvar)
                 local if_body, if_eff = compile(CompilerInput(body), output:derived(), stacks)
-                print("IF_EFF", if_eff, total_effect)
+
+                print(pre:str().."IF_EFF", if_eff, total_effect)
 
                 for a in iter.each(barrier.assigns) do output:compile(a) end
 
@@ -472,12 +467,13 @@ function compile(input, output, stacks)
                     if_body:compile(Assign(v.var, stacks:pop()))
                     outvars:push(v)
                 end
+                stacks.stack:pop_barrier()
                 for d in outvars:each() do
                     stacks:push(d)
                 end
-                cond.when_true = if_body.code
-                total_effect = total_effect..if_eff
-                output:compile(cond)
+
+                merge_effect(if_eff, "if")
+                output:compile(If(cond, if_body.code))
             end
             input:goto_scan(scan)
         elseif tok == "do" then
@@ -501,7 +497,10 @@ function compile(input, output, stacks)
             end
             for_eff = for_eff..Effect(iter_eff.in_eff, {})
             local loop_def = For()
-            for i=1,#iter_eff.out_eff do loop_def:add_iter_var(stacks:pop()) end
+            for i=1,#iter_eff.out_eff do 
+                loop_def:add_iter_var(stacks:pop()) 
+            end
+            iter.reverse(loop_def.for_iter)
 
             if not body_arg_effect:find("^[*_]+$") then
                 error("Invalid for body arg notation: "
@@ -521,6 +520,7 @@ function compile(input, output, stacks)
             end
 
             local main_loop_body, main_loop_eff = compile(CompilerInput(loop_body), output:derived(), stacks)
+            stacks.stack:pop_barrier()
 
             local comb_eff = arg_eff..main_loop_eff
             comb_eff:assert_balanced()
@@ -529,7 +529,7 @@ function compile(input, output, stacks)
                 output:compile(a) 
             end
             for d in iter.each(barrier.vars) do
-                main_loop_body:compile({assign=d.var,value=stacks:pop{}})
+                main_loop_body:compile(Assign(d.var, stacks:pop()))
             end
             for d in iter.each(barrier.vars) do
                 stacks:push(d)
@@ -538,23 +538,28 @@ function compile(input, output, stacks)
             loop_def.body = main_loop_body.code
             output:compile(loop_def)
             input:goto_scan(scan)
-            total_effect = total_effect..for_eff
+            merge_effect(for_eff, "foreach")
         else
             pp{tok, output:envkeys()}
 
             error("Unexpected token: " .. tok)
         end 
-        print("AFTER", total_effect)
         
     end
-    output:exit()
+    print(pre:str().."TOTAL", total_effect)
+    io.write(pre:str()) output:exit()
+    pre:pop_throw()
     return output, total_effect
 end
 
 function emit(ast, output)
-    if ast.order then
-        for k in each(ast.order) do
-            emit(ast[k], output)
+    if not instanceof(ast, Ast) then
+        error("DFSDFLKJ"..pfmt(ast))
+    end
+
+    if instanceof(ast, Block) then
+        for item in ast:items() do
+            emit(item, output)
         end
     elseif ast.for_iter then
         output:push("for ")
@@ -592,15 +597,24 @@ function emit(ast, output)
             emit(stmt, output)
         end
         output:push(" end\n")
-    elseif ast._if and ast.when_true and ast.when_false then
+    elseif ast.cond and ast.when_true and ast.when_false then
         output:push(" if ")
-        emit(ast._if, output)
+        emit(ast.cond, output)
         output:push(" then ")
         for stmt in ast.when_true:each() do
             emit(stmt, output)
         end
         output:push(" else ")
         for stmt in ast.when_false:each() do
+            emit(stmt, output)
+        end
+        output:push(" end ")
+    elseif ast.cond and ast.when_true then
+        output:push("if ")
+        emit(ast.cond, output)
+        output:push(" then ")
+        for stmt in ast.when_true:each() do
+            -- pp(stmt)
             emit(stmt, output)
         end
         output:push(" end ")
@@ -614,16 +628,6 @@ function emit(ast, output)
         emit(ast.value, output)
         output:push("."..ast.prop_get)
         output:push("")
-    elseif ast._if and ast.when_true then
-        output:push("if ")
-        emit(ast._if, output)
-        output:push(" then ")
-        for stmt in ast.when_true:each() do
-            -- pp(stmt)
-            emit(stmt, output)
-        end
-        output:push(" end ")
-        
     elseif ast.assign then
         -- pp(ast)
         if ast.new then
@@ -673,7 +677,7 @@ function emit(ast, output)
             output:pop_throw("call rets")
             output:push(" = ")
         end
-        pp(ast)
+        --pp(ast)
         emit(ast.call, output)
         output:push("(")
         for a in iter.each(ast.args) do
@@ -691,14 +695,27 @@ function emit(ast, output)
     end
 end
 
+
 function to_lua(ast)
-    -- pp{"TOLUA",ast}
     local output = Buffer()
-    pp{output}
-    -- pp(ast)
-    emit(ast, output)
+    -- pp{output}
+    local ok, err = pcall(emit, ast, output)
+    -- pp("ERR?",ok, err, output)
+    if ok then
+        local towrite = output:str():gsub("[ \t]+", " ")
+        io.write(towrite)
+    else
+        for i=1,4 do print(string.rep("*", 40)) end
+        pprint.setup {
+            use_tostring=false
+        }
+        pp{"unsupported ast", ast}
+        pprint.setup {
+            use_tostring=false
+        }
+        error(err)
+    end
     -- pp(output)
-    local towrite = output:str():gsub("[ \t]+", " ")
     --[[ local chk, err=load(towrite)
     if err then error(err) 
     else
@@ -707,7 +724,6 @@ function to_lua(ast)
     ]]
 
 
-    io.write(towrite)
 end
 
 function rootEnv()
@@ -739,7 +755,7 @@ function main()
             local stacks = ExprState("toplevel expression", "toplevel subject")
             local ast = compile(input, output, stacks).code
             --pprint(output.def_depth)
-            print(table.concat(toks, " "))
+            print(table.concat(toks, " "):gsub(";%s+", ";\r\n"))
             -- print(str) print()
             -- to_lua(output.env)
             -- pp(ast)
@@ -754,7 +770,7 @@ function main()
                     emit(n, buf)
                     buf:push(", ")
                 end
-                buf:pop()
+                buf:pop_throw()
             end
             -- io.write(buf:str())
 

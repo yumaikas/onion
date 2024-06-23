@@ -46,19 +46,28 @@ function ExprStack:copy(name)
     return newStack
 end
 
+function ExprStack:pop_barrier()
+    if instanceof(self.storage:peek(), Barrier) then
+        self.storage:pop_throw("Should Never Happen")
+    end
+end
+
 function ExprStack:pop()
     local ok, item = self.storage:pop_check()
     if not ok then
         error(self.name.." stack underflow!")
     end
-    if instanceof(item, Barrier) then
-        local barrier = item
-        -- TODO: finish here
-        local behind_barrier = self.storage:pop_throw(self.name.." stack underflow")
-        self.storage:push(barrier)
-        return barrier:compile(behind_barrier)
+    local lastBarrier
+    while instanceof(item, Barrier) do
+        lastBarrier = item
+        item = self.storage:pop_throw(self.name.." stack underflow")
     end
-
+    if lastBarrier then
+        self.storage:push(lastBarrier)
+        return lastBarrier:compile(item)
+    else
+        return item
+    end
     return item
 end
 
@@ -137,13 +146,13 @@ ExprState = Object:extend()
 function ExprState:new(name, it_name)
     self.stack = ExprStack(name)
     self.it_stack = ItStack(it_name)
-    self.def_info = DefStack("toplevel")
+    -- self.def_info = DefStack("toplevel")
 end
 function ExprState:copy(name, it_name)
     local newState = ExprState()
     newState.stack = self.stack:copy(name or self.name)
     newState.it_stack = self.it_stack:copy(it_name or self.it_name)
-    newState.def_info = self.def_info:copy()
+    -- newState.def_info = self.def_info:copy()
     return newState
 end
 
@@ -159,8 +168,8 @@ function ExprState:barrier(nextvar)
     self.stack:push(barrier)
     return barrier
 end
-function ExprState:push_def_info(name) self.def_info:push(name) end
-function ExprState:pop_def_info() self.def_info:pop() end
+--function ExprState:push_def_info(name) self.def_info:push(name) end
+-- function ExprState:pop_def_info() self.def_info:pop() end
 function ExprState:current_def_name() return self.def_info:peek() end
 function ExprState:push_it(val) self.it_stack:push(val) end
 function ExprState:peek_it() return self.it_stack:peek() end
