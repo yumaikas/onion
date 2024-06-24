@@ -1,6 +1,7 @@
 local Object = require("classic")
 local Buffer = require("buffer")
 local Ast = require("ast")
+local iter = require("iter")
 
 Stack = Object:extend()
 
@@ -13,72 +14,55 @@ ExprStack = Stack:extend()
 
 Barrier = Object:extend()
 
-function Barrier:new(nextvar)
-    self.nextvar = nextvar
+
+InputStack = Stack:extend()
+
+function InputStack:new(name, underflow_limit) 
     self.vars = {}
-    self.exists = {}
-    self.assigns = {}
-end
-
-function Barrier:compile(value)
-    if instanceof(value, Var) then
-        table.insert(self.vars, value)
-        table.insert(self.exists, value)
-        return value
-    else
-    local var = Var(self.nextvar())
-    table.insert(self.assigns, Assign(var.var, value, true))
-    table.insert(self.vars, var)
-    return var
-    end
-end
-
-function ExprStack:new(name)
     self.name = name
     self.storage = Buffer()
 end
 
-
-function ExprStack:copy(name)
-    local newStack = ExprStack(name)
-    newStack.name = name
-    newStack.storage = self.storage:copy()
-    return newStack
+function InputStack:__tostring()
+    return string.format("InputStack('%s', items: %s, vars: %s)",
+        self.name,
+        iter.str(self.storage.items, ", "),
+        iter.str(self.vars, ", ")
+    )
 end
 
-function ExprStack:pop_barrier()
-    if instanceof(self.storage:peek(), Barrier) then
-        self.storage:pop_throw("Should Never Happen")
-    end
+function InputStack:pop()
+    return self.storage:pop_throw(self.name.." stack undeflow!")
+end
+local none = {}
+function InputStack:push(val) 
+    self.storage:push(none) 
+    local var = Var("_"..self.storage:size())
+    self.vars[self.storage:size()] = var
+    self.storage:put(var)
+    return Assign(var.var, val)
 end
 
-function ExprStack:pop()
-    local ok, item = self.storage:pop_check()
-    if not ok then
-        error(self.name.." stack underflow!")
-    end
-    local lastBarrier
-    while instanceof(item, Barrier) do
-        lastBarrier = item
-        item = self.storage:pop_throw(self.name.." stack underflow")
-    end
-    if lastBarrier then
-        self.storage:push(lastBarrier)
-        return lastBarrier:compile(item)
-    else
-        return item
-    end
-    return item
+function InputStack:push_return()
+    self.storage:push(none) 
+    local var = Var("_"..self.storage:size())
+    self.vars[self.storage:size()] = var
+    self.storage:put(var)
+    return var 
 end
 
-function ExprStack:push(value) 
-    self.storage:push(value) 
+function InputStack:peek() return self.storage:peek() end
+function InputStack:size() 
+    return self.storage:size() 
 end
-
-
-function ExprStack:peek() return self.storage:peek() end
-function ExprStack:size() return self.storage:size() end
-function ExprStack:each() return self.storage:each() end
+function InputStack:each() return self.storage:each() end
+function InputStack:copy(name)
+    local ret = InputStack()
+    ret.vars = self.vars
+    ret.name = self.name
+    ret.storage = self.storage:copy()
+    return ret
+end
 
 
 ItStack = Stack:extend()
@@ -109,6 +93,10 @@ end
 function ItStack:push(value)
     self.storage:push(value)
     return self
+end
+
+function ItStack:size()
+    return self.storage:size()
 end
 
 DefStack = Stack:extend()
@@ -143,8 +131,8 @@ end
 
 ExprState = Object:extend()
 
-function ExprState:new(name, it_name)
-    self.stack = ExprStack(name)
+function ExprState:new(name, it_name, capacity)
+    self.stack = InputStack(name, capacity or 0)
     self.it_stack = ItStack(it_name)
     -- self.def_info = DefStack("toplevel")
 end
@@ -156,18 +144,45 @@ function ExprState:copy(name, it_name)
     return newState
 end
 
-function ExprState:push(value) self.stack:push(value) end
+function ExprState:push(value) return self.stack:push(value) end
 function ExprState:peek() return self.stack:peek() end
 function ExprState:pop() return self.stack:pop() end
 function ExprState:has_size(size) 
     pp(self.stack)
     return self.stack:size() == size 
 end
-function ExprState:barrier(nextvar) 
-    local barrier = Barrier(nextvar)
-    self.stack:push(barrier)
-    return barrier
+
+function ExprState:fill_input_stacks(inputs, dbg)
+    if #inputs == 0 then
+        error("Need to pass stacks to fill_input_stacks via a table")
+    end
+    if dbg then
+        print("DBG", iter.str(inputs, " "))
+    end
+    local max_input_size = 0
+    for input in iter.each(inputs) do
+        max_input_size = math.max(max_input_size, #input.stack.to_fill)
+    end
+
+    local fill_vals = {}
+    for i=1,max_input_size do
+        fill_vals[#fill_vals + 1] = self.stack:pop()
+    end
+
+    local ret = {}
+    for input in iter.each(inputs) do
+        for i=1,#input.stack.to_fill do
+            local fb = iter.from_back(input.stack.to_fill, i)
+            local box = input.stack.to_fill[fb]
+            local fv_idx = iter.from_back(fill_vals, i)
+            box:set(fill_vals[fv_idx])
+            iter.push(ret, box)
+        end
+    end
+    return ret
 end
+
+
 --function ExprState:push_def_info(name) self.def_info:push(name) end
 -- function ExprState:pop_def_info() self.def_info:pop() end
 function ExprState:current_def_name() return self.def_info:peek() end

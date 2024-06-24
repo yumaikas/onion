@@ -50,17 +50,16 @@ function CompilerOutput:new(env, code, def_depth)
 end
 
 function CompilerOutput:enter() 
-	print("comp-in")
+	--print("comp-in")
 	self.def_depth = self.def_depth + 1 end
 function CompilerOutput:exit() 
-	print("comp-out")
+	--print("comp-out")
 	self.def_depth = self.def_depth - 1 end
 function CompilerOutput:compile(ast) self.code:compile(ast) end
 --[[
 : CompilerOutput:compiler_iter { # i -- } for i dup nip do * #compile(*) each ;
 ]] 
 function CompilerOutput:compile_iter(iter) for c in iter do self.code:compile(c) end end
-
 function CompilerOutput:pushenv() self.env = Env(self.env) end
 function CompilerOutput:popenv() self.env = self.env.parent end
 function CompilerOutput:def(name, val) self.env:def(name, val) end

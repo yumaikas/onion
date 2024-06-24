@@ -24,7 +24,10 @@ function Effect:add_out(name)
 end
 
 function Effect:assert_match(other)
-	if #self.in_eff == #other.in_eff and #self.out_eff == #other.out_eff then
+    local my_flow = #self.in_eff - #self.out_eff
+    local other_flow = #other.in_eff - #other.out_eff
+
+	if my_flow == other_flow then
 	else
 		error(string.format("Stack Effect Mismatch %s %s", self, other))
 	end
@@ -35,7 +38,10 @@ function Effect:assert_balanced()
 end
 
 function Effect:assert_matches_depths(i, o, fn)
-	return (#self.in_eff == i and #self.out_eff == o) 
+    local my_flow = #self.in_eff - #self.out_eff
+    local other_flow = i - o
+
+	return (my_flow == other_flow) 
 	or error(
 		string.format("Stack effect mismatch in %s! expected %s, got %s", 
 		fn, self, mouse_notation(i, o) ))

@@ -82,4 +82,26 @@ function iter.has_value(t, v)
     return false
 end
 
+function iter.map(t, fn)
+    local ret = {}
+    for el in iter.each(t) do
+        ret[#ret+1] = fn(el)
+    end
+    return ret
+end
+
+function iter.str(t, sep)
+    return table.concat(iter.map(t, tostring), sep or "")
+end
+
+function iter.push(t, ...)
+    for i in iter.each({...}) do
+        t[#t+1] = i
+    end
+end
+
+function iter.from_back(t, i)
+    return #t - (i - 1)
+end
+
 return iter

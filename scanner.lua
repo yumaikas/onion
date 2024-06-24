@@ -1,4 +1,5 @@
 local Object = require("classic")
+local pprint = require("pprint")
 
 Scanner = Object:extend()
 
