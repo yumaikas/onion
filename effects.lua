@@ -6,7 +6,7 @@ function Effect:__tostring()
     return "[ " .. table.concat(self.in_eff, " ") .. " -- " .. table.concat(self.out_eff, " ") .. " ]"
 end
 
-function mouse_notation(i,o)
+local function mouse_notation(i,o)
 	return string.format("%s\\%s", string.rep("*", i), string.rep("*", o))
 end
 

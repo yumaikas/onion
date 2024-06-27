@@ -4,6 +4,7 @@ local Buffer = require("buffer")
 local iter = require("iter")
 local lex = require("lex")
 local Effect = require("effects")
+local Object = require("classic")
 require("ast")
 require("outputs")
 require("inputs")
@@ -46,24 +47,14 @@ function parse_if_then_else(seq)
     return ret
 end
 
-function chunk_for_each_loop(seq)
-    local depth = 0
-    local ret = {}
-    for tok in iter.each(seq) do
-        if tok == "for" then depth = depth + 1 end
-        if tok == "each" then depth = depth - 1 end
-        table.insert(ret, tok)
-    end
-
-    return ret
-end
-
 function parse_do_loop(seq)
     local ret = {}
     for iv in iter.each(seq) do
     end
     error("do loops not implemented!")
 end
+
+
 
 local trace = false
 
@@ -126,24 +117,26 @@ function compile(input, output, stacks)
         -- pp(output)
         if output:envget(tok) ~= nil then
             local expr = output:envget(tok)
-            -- pp{EXPR=expr}
+            pp{EXPR=expr}
             if expr.var then
                 stacks:push(expr)
-                input:tok_next()
                 add_effect({}, {expr.var}, "var")
+                input:tok_next()
             elseif expr.fn then 
                 local call_eff = Effect({}, {})
                 local call = Call(Barelit(expr.actual)) 
-                if expr.needs_it then
-                    table.insert(call.args, stacks:peek_it(tok))
-                    table.remove(call.args, 1)
-                end
                 -- pp({"INPUTS", expr.inputs})
                 for a in iter.each(expr.inputs) do
-                    call_eff:add_in(a.var)
-                    table.insert(call.args, stacks:pop())
+                    if a.var ~= "it" then
+                        call_eff:add_in(a.var)
+                        table.insert(call.args, stacks:pop())
+                    end
                 end
                 iter.reverse(call.args)
+                if expr.needs_it then
+                    table.insert(call.args, 1, stacks:peek_it(tok))
+                    --table.remove(call.args, 1)
+                end
                 for _ in iter.each(expr.outputs) do
                     local v = nextvar()
                     call_eff:add_out(v)
@@ -214,6 +207,7 @@ function compile(input, output, stacks)
             input:tok_next()
             add_effect({'obj','propval'}, {}, "setter: "..name)
         elseif tok == "dup" then
+            local to_dup = stacks:pop()
             stacks:push(to_dup)
             stacks:push(to_dup)
             input:tok_next()
@@ -233,7 +227,7 @@ function compile(input, output, stacks)
         elseif tok == "drop" then
             stacks:pop()
             input:tok_next()
-            add_effect({'a', 'b'}, {'a'}, "drop")
+            add_effect({'a'}, {}, "drop")
         elseif tok:find("^@.+") then
             local name
             _,_, name = tok:find("^@(.+)")
@@ -305,6 +299,7 @@ function compile(input, output, stacks)
             end
             merge_effect(call_eff, "ffi-call")
             input:tok_next()
+        elseif tok:find("%[#?[]%]") then
         elseif tok == "table" then
             local new = nextvar()
             output:compile(Assign(new, Barelit("{}"), true))
@@ -385,8 +380,6 @@ function compile(input, output, stacks)
             local _output_ = output:derived()
             local body_comp, body_eff = compile(_input_,_output_, fn_stacks)
             local comb_eff = arg_eff..body_eff
-            print(pre:str().."XRD", body_eff)
-            print(pre:str().."def", comb_eff,arg_eff,body_eff, pfmt(fn.body_toks), pfmt(fn.inputs), pfmt(fn.outputs))
             comb_eff:assert_matches_depths(#fn.inputs, #fn.outputs, fn.fn)
             -- fn_stacks:pop_def_info()
             fn.body = body_comp.code
@@ -434,6 +427,9 @@ function compile(input, output, stacks)
 
                 eff_true:assert_match(eff_false)
                 -- Declare the destination variables for the if/else branches
+                for i=1,#eff_true.in_eff do
+                    stacks:pop()
+                end
                 for a in iter.each(barrier.assigns) do output:compile(a) end
                 local bar_vars = iter.copy(barrier.vars)
                 for o=1,#eff_true.out_eff do
@@ -451,7 +447,6 @@ function compile(input, output, stacks)
                 print(pre:str().."true_eff", eff_true)
                 print(pre:str().."false_eff", eff_false)
                 merge_effect(eff_true, "if-else")
-                print("der")
             else
                 local barrier = stacks:barrier(nextvar)
                 local if_body, if_eff = compile(CompilerInput(body), output:derived(), stacks)
@@ -476,69 +471,25 @@ function compile(input, output, stacks)
                 output:compile(If(cond, if_body.code))
             end
             input:goto_scan(scan)
+        elseif tok == "each" then
+            local table_to_each = stacks:pop() 
+            add_effect({'to-iter'}, {}, "each-table")
+            local scan = input:scan_ahead_by(1)
+            local body = iter.collect(scan:upto(balanced("each", "for")))
+            local iter_var = Var(nextvar())
+
+            stacks:push(iter_var)
+            local each_body, each_eff = compile(CompilerInput(body), output:derived(), stacks)
+            each_eff:assert_matches_depths(1, 0, "each body")
+            output:compile(Each(table_to_each, iter_var, each_body.code))
+            input:goto_scan(scan)
+        elseif tok == "iter" then
+            local table_to_each = stacks:pop() 
+            add_effect({'to-iter'}, {}, "each-table")
+
         elseif tok == "do" then
             error("Do loops not implemented")
         elseif tok == "for" then
-            local scan = input:scan_ahead_by(1)
-            local body = Buffer():collect(scan:upto(balanced("for", "each"))).items
-            local iter_scan = Scanner(body, 1)
-            local iterator_expr =  Buffer():collect(iter_scan:upto("do"))
-            local body_arg_effect = iter_scan:at() 
-            iter_scan:go_next()
-            local loop_body = iter.collect(iter_scan:rest())
-            local before_iter_expr = stacks:copy("Before Iter Expr")
-            local for_eff = Effect({}, {})
-            local iter_body, iter_eff = compile(CompilerInput(iterator_expr.items), output:derived(), stacks)
-            output:compile_iter(iter_body.code:each())
-            if #iter_eff.out_eff > 3 then
-                error(
-                "Too many outputs in iterator expresion for loop in "
-                ..stacks:current_def_name())
-            end
-            for_eff = for_eff..Effect(iter_eff.in_eff, {})
-            local loop_def = For()
-            for i=1,#iter_eff.out_eff do 
-                loop_def:add_iter_var(stacks:pop()) 
-            end
-            iter.reverse(loop_def.for_iter)
-
-            if not body_arg_effect:find("^[*_]+$") then
-                error("Invalid for body arg notation: "
-                ..body_arg_effect.." in "..stacks:current_def_name())
-            end
-            local barrier = stacks:barrier(nextvar)
-            local arg_eff = Effect({},{})
-            for c in body_arg_effect:gmatch("([_*])") do
-                if c == "_" then
-                    table.insert(loop_def.var_expr, Var("_"))
-                elseif c == "*" then
-                    local v = Var(nextvar())
-                    table.insert(loop_def.var_expr, v)
-                    stacks:push(v)
-                    arg_eff:add_out(v.var)
-                end
-            end
-
-            local main_loop_body, main_loop_eff = compile(CompilerInput(loop_body), output:derived(), stacks)
-            stacks.stack:pop_barrier()
-
-            local comb_eff = arg_eff..main_loop_eff
-            comb_eff:assert_balanced()
-            for_eff = for_eff..arg_eff..main_loop_eff
-            for a in iter.each(barrier.assigns) do 
-                output:compile(a) 
-            end
-            for d in iter.each(barrier.vars) do
-                main_loop_body:compile(Assign(d.var, stacks:pop()))
-            end
-            for d in iter.each(barrier.vars) do
-                stacks:push(d)
-            end
-
-            loop_def.body = main_loop_body.code
-            output:compile(loop_def)
-            input:goto_scan(scan)
-            merge_effect(for_eff, "foreach")
         else
             pp{tok, output:envkeys()}
 
@@ -554,13 +505,20 @@ end
 
 function emit(ast, output)
     if not instanceof(ast, Ast) then
-        error("DFSDFLKJ"..pfmt(ast))
+        print(ast)
+        error("Not an AST node")
     end
 
     if instanceof(ast, Block) then
-        for item in ast:items() do
+        for item in ast:each() do
             emit(item, output)
         end
+    elseif instanceof(ast, Each) then
+        output:push("for _, " .. ast.itervar.var .. " in ipairs(")
+        emit(ast.input, output)
+        output:push(") do ")
+        emit(ast.body, output)
+        output:push(" end ")
     elseif ast.for_iter then
         output:push("for ")
         for var in iter.each(ast.var_expr) do
@@ -690,7 +648,8 @@ function emit(ast, output)
         output:push(") ")
 
     else
-        pp({'unsupported', output, ast})
+        output:push("--[[")
+        output:push(string.format("Unsupported node: %s", ast or "nil"))
         error("Unsupported ast node!")
     end
 end
@@ -706,13 +665,8 @@ function to_lua(ast)
         io.write(towrite)
     else
         for i=1,4 do print(string.rep("*", 40)) end
-        pprint.setup {
-            use_tostring=false
-        }
-        pp{"unsupported ast", ast}
-        pprint.setup {
-            use_tostring=false
-        }
+        print("unsupported ast")
+        print(ast)
         error(err)
     end
     -- pp(output)
@@ -746,7 +700,10 @@ function main()
             print()
             argIdx = argIdx + 2
         elseif arg[argIdx] == "--compile" then
-            print() print()
+            for i=1,4 do
+                print(string.rep("*", 30) )
+            end
+            print()
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a")
             local toks = lex(str)

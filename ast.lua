@@ -1,7 +1,10 @@
 local Object = require("classic")
 local Buffer = require("buffer")
 local pprint = require("pprint")
+local iter = require("iter")
 local pfmt = pprint.pformat
+
+local s = tostring
 
 Ast = Object:extend()
 
@@ -14,12 +17,7 @@ function Block:new()
 end
 
 function Block:__tostring()
-    local res = {"Block:"}
-    for n in self.storage:each() do
-        table.insert(res, tostring(n))
-    end
-    return table.concat(res," ")
-
+    return "Block(".. iter.str(self:items(), "\n")..")"
  end
 
 function Block:compile(node)
@@ -46,8 +44,28 @@ function Var:new(name)
 end
 
 function Var:__tostring()
-    return "Var: "..self.var
+    return "Var("..self.var..")"
 end
+
+Box = Ast:extend()
+
+function Box:new(val) self.holding=val end
+function Box:set(to) self.holding=to end
+function Box:get() 
+    if instanceof(self.holding, Box) then
+        return self.holding:get()
+    else
+        return self.holding
+    end
+ end
+
+function Box:__tostring()
+    return string.format("Box(%s)",self.holding)
+end
+
+Input = Box:extend()
+
+
 
 Assign = Ast:extend()
 
@@ -58,13 +76,27 @@ function Assign:new(target, value, new)
     self.new = new or false
 end
 
+function Assign:__tostring()
+    if self.new then
+        return "AssignNew("..s(self.value).." to "..s(self.assign)..")"
+    else
+        return "Assign("..s(self.value).." to "..s(self.assign)..")"
+    end
+end
+
 Barelit = Ast:extend()
 
 function Barelit:new(to_print) self.barelit = to_print end
+function Barelit:__tostring()
+    return "Barelit("..s(self.barelit)..")"
+end
 
 Strlit = Ast:extend()
 
 function Strlit:new(str) self.strlit = str end
+function Strlit:__tostring()
+    return "Strlit("..s(self.strlit)..")"
+end
 
 Op = Ast:extend()
 
@@ -73,15 +105,20 @@ function Op:new(op, a, b)
     self.a = a
     self.b = b
 end
+function Op:__tostring()
+    return "Op("..s(self.op).." "..s(self.a).." "..s(self.b)..")"
+end
 
 Declare = Ast:extend()
 
 function Declare:new()
     self.decl = {}
 end
-
+function Declare:__tostring()
+    return "Declare("..iter.str(self.decl, ", ")..")"
+end
 function Declare:add(name)
-    table.insert(self.decl, name)
+    iter.push(self.decl, name)
     return self
 end
 
@@ -92,8 +129,19 @@ function If:new(cond, when_true, when_false)
     self.when_true = when_true or error("If AST node needs when_true")
     self.when_false = when_false or nil
 end
+function If:__tostring()
+    if self.when_false then
+        return "If("..s(self.cond).." then: "..s(self.when_true)
+            .." else: "..s(self.when_false)..")"
+    else
+        return "If("..s(self.cond).." then: "..s(self.when_true)..")"
+    end
+end
 
 AnonFnName = Ast:extend()
+function AnonFnName:__tostring()
+    return "AnonFn"
+end
 
 Fn = Ast:extend()
 
@@ -102,24 +150,26 @@ function Fn:new(name, body, inputs, outputs)
     self.actual = mangle_name(name)
     self.body = body or Block()
     self.inputs = inputs or {}
+    self.stackvars = {}
     self.outputs = outputs or {}
 end
 
 function Fn:__tostring()
-    return string.format("[Fn: %s, actual %s, body: %s, inputs: %s, outputs: %s]",
-        self.fn, self.actual, self.body, self.inputs, self.outputs
+    return string.format("Fn(name:%s\n actual %s\n, body: %s\n, inputs: %s\n, stackvars:%s\n outputs: %s\n)",
+        self.fn, self.actual, self.body, 
+        iter.str(self.inputs, ", "), 
+        iter.str(self.stackvars, ", "), 
+        iter.str(self.outputs, ", ")
     )
 end
 
 Return = Ast:extend()
-
-function Return:new()
-    self.ret = Block()
+function Return:new() self.ret = Block() end
+function Return:push(item) self.ret:compile(item) end
+function Return:__tostring()
+    return "Return("..iter.str(self.ret:items(), ", ")..")"
 end
 
-function Return:push(item)
-    self.ret:compile(item)
-end
 Call = Ast:extend()
 
 function Call:new(name, args, returns, needs_it)
@@ -129,6 +179,14 @@ function Call:new(name, args, returns, needs_it)
     self.needs_it = needs_it or false
 end
 
+function Call:__tostring()
+    if needs_it then
+        return "Call(args("..iter.str(self.args, ", ").."), rets("..iter.str(self.rets, ", ").."))"
+    else
+        return "CallWithIt(args("..iter.str(self.args, ", ").."), rets("..iter.str(self.rets, ", ").."))"
+    end
+end
+
 PropSet = Ast:extend()
 
 function PropSet:new(prop_name, on, to)
@@ -136,12 +194,18 @@ function PropSet:new(prop_name, on, to)
     self.on = on
     self.to = to
 end
+function PropSet:__tostring()
+    return string.format("PropSet(%s, on: %s, to: %s)", self.prop_set, self.on, self.to)
+end
 
 PropGet = Ast:extend()
 
 function PropGet:new(on, prop) 
     self.value = on
     self.prop_get = prop
+end
+function PropGet:__tostring()
+    return string.format("PropGet(%s, on: %s)", self.prop_set, self.value)
 end
 
 For = Ast:extend()
@@ -151,11 +215,30 @@ function For:new()
     self.var_expr = {}
     self.body = {}
 end
-
-
-function For:add_iter_var(v)
-    table.insert(self.for_iter, v)
+function For:__tostring()
+    return string.format("For(%s in %s do %s )",
+        tostring(iter.str(self.var_expr, ", ")),
+        tostring(iter.str(self.for_iter, ", ")),
+        tostring(self.body)
+    )
 end
+
+Each = Ast:extend()
+
+function Each:new(input, itervar, body)
+    self.input = input
+    self.itervar = itervar
+    self.body = body
+end
+
+function Each:__tostring()
+    return string.format("Each(%s in %s do %s)",
+        self.itervar,
+        self.input,
+        self.body
+    )
+end
+
 
 function mangle_name(n)
     n = n:gsub("[?#/\\-]", {
@@ -163,7 +246,7 @@ function mangle_name(n)
         ['/'] = "_slash_",
         ['\\'] = '_backslash_',
         ['?'] = '_question_',
-        ['-'] = '_',
+        ['-'] = '_'
     })
     if n:find("^[^_a-zA-Z]") then
         n = "__" .. n
