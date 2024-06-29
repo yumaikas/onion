@@ -240,6 +240,16 @@ function Each:__tostring()
 end
 
 
+Iter = Ast:extend()
+
+function Iter:new(word, inputs, loop_vars, body)
+    self.word = word
+    self.inputs = inputs or {}
+    self.loop_vars = loop_vars or {}
+    self.body = body or {}
+end
+
+
 function mangle_name(n)
     n = n:gsub("[?#/\\-]", {
         ['#'] = "_hash_",

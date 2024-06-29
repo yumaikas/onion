@@ -20,6 +20,10 @@ function Env:defn(name, val)
 	self.parent.kv[name] = val
 end
 
+function Env:getlocal(key) 
+    return self.kv[key]
+end
+
 function Env:get(key)
 	local val = self.kv[key] 
 	if val then return val end
@@ -67,6 +71,9 @@ function CompilerOutput:def(name, val) self.env:def(name, val) end
 function CompilerOutput:defn(name, val) self.env:defn(name, val) end
 function CompilerOutput:mark_needs_it() self.needs_it = true end
 function CompilerOutput:is_toplevel() return not self.env.parent end
+function CompilerOutput:envgetlocal(key)
+	return self.env:getlocal(key) 
+end
 function CompilerOutput:envget(key) 
 	return self.env:get(key) 
 end

@@ -5,6 +5,7 @@ local iter = require("iter")
 local lex = require("lex")
 local Effect = require("effects")
 local Object = require("classic")
+local tests = require("tests")
 require("ast")
 require("outputs")
 require("inputs")
@@ -27,6 +28,22 @@ end
 
 function cond(pred, if_true, if_false)
     if pred then return if_true else return if_false end
+end
+
+function bind(obj, fn)
+    return function(...)
+        return fn(obj, ...)
+    end
+end
+
+function ssa_counter(start)
+    local ssa_idx = start or 1
+
+    return function()
+        local ret = "_"..ssa_idx
+        ssa_idx = ssa_idx + 1
+        return ret
+    end, function (to) ssa_idx = to end
 end
 
 function parse_if_then_else(seq)
@@ -54,17 +71,65 @@ function parse_do_loop(seq)
     error("do loops not implemented!")
 end
 
+-- TODO: Resume here
+local iter_eff = {}
+function iter_eff.is(word) return not not word:find("[^[]*%[#?%**\\[*_]*%]$") end
+function tests.iter_effs_parse()
+    function t(a, b) assert(iter_eff.is(a), b) end
+    t("[*\\*]", "1 to 1")
+    t("[\\*]", "0 to 1")
+    t("[**\\*]", "2 to 1")
+    t("[#\\*]", "it to 1")
+    t("[#\\*_]", "it to 1,_")
+end
+function tests.word_iter_effs_parse()
+    function t(a, b) assert(iter_eff.is(a), b) end
+    t("ipairs[*\\*]", "1 to 1")
+    t(":nodes[\\*]", "0 to 1")
+    t("derp[**\\*]", "2 to 1")
+    t("ipairs[#\\*]", "it to 1")
+end
 
+function iter_eff.parse(word, nextvar, pop)
+    if not iter_eff.is(word) then
+        error ("invalid iter effect: "..word)
+    end
+    local patt = "([^[]*)%[(#?%**)\\([*_]*)%]$"
+    local _, _, word, inputs, loop_vars = word:find(patt)
+
+    local iterAst = Iter(word)
+
+    if inputs:find("^#") then
+        iter.push(iterAst.inputs, Var("it"))
+    end
+    for i in inputs:gmatch("%*") do
+        iter.push(iterAst.inputs, Var(nextvar()))
+    end
+
+    for i in loop_vars:gmatch("[*_]") do
+        if i == "*" then
+            iter.push(iterAst.loop_vars, Var(nextvar()))
+        elseif i == "_" then
+            iter.push(iterAst.loop_vars, Var("_"))
+        end
+    end
+    return iterAst
+end
+
+function tests.parse_iter()
+    local stack = ItStack()
+    local nextvar, reset = ssa_counter()
+    local ast = iter_eff.parse("ipairs[*\\_*]",  nextvar, bind(stack, stack.pop))
+    assert(ast.word == "ipairs", "parsed word")
+    assert(ast.inputs[1].var, "has a var as the input")
+    assert(ast.loop_vars[1].var == "_", "discards first loop var")
+    assert(ast.loop_vars[2].var ~= "_", "does not discard second loop var")
+end
 
 local trace = false
 
-local ssa_idx = 1
 
-function nextvar()
-    local ret = "_"..ssa_idx
-    ssa_idx = ssa_idx + 1
-    return ret
-end
+local nextvar, reset_ssa = ssa_counter(1)
 
 function compile_op(op, input, _output, stacks)
     local err_info = {op=op, tok, idx, code}
@@ -117,7 +182,6 @@ function compile(input, output, stacks)
         -- pp(output)
         if output:envget(tok) ~= nil then
             local expr = output:envget(tok)
-            pp{EXPR=expr}
             if expr.var then
                 stacks:push(expr)
                 add_effect({}, {expr.var}, "var")
@@ -314,7 +378,7 @@ function compile(input, output, stacks)
             end
             iter.reverse(assigns)
             for var in iter.each(assigns) do
-                if not output:envget(var) then
+                if not output:envgetlocal(var) then
                     output:def(var, Var(var))
                     output:compile(Assign(var, stacks:pop(), true))
                 else
@@ -404,7 +468,7 @@ function compile(input, output, stacks)
             output:popenv()
             if output:is_toplevel() then
                 print() print() print()
-                ssa_idx = 1
+                reset_ssa(1)
             end
         elseif tok == "if" then
             local cond = stacks:pop() 
