@@ -1,6 +1,6 @@
 # onion
 
-A Stack language compiled to lua. Aims to be like forth
+A Stack language compiled to lua. Aims to be like a bit like forth, with concessions made to needing to compile to lua, as well as first class support for a "subject stack" that allows a very pleasant stack-based version of object interaction.
 
 ## Usage
 
