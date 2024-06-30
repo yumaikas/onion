@@ -1,4 +1,7 @@
-\ asdf
+\ Setup
+\ lua onion.lua --compile game.fth main.lua
+\ love .
+
 t[ 20 >>x 20 >>y ] { text_loc }
 0 { total_time }
 
