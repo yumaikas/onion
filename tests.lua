@@ -1,0 +1,2 @@
+local tests = {}
+return tests
