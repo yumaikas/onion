@@ -64,13 +64,6 @@ function parse_if_then_else(seq)
     return ret
 end
 
-function parse_do_loop(seq)
-    local ret = {}
-    for iv in iter.each(seq) do
-    end
-    error("do loops not implemented!")
-end
-
 -- TODO: Resume here
 local iter_eff = {}
 function iter_eff.is(word) return not not word:find("[^[]*%[#?%**\\[*_]*%]$") end
@@ -103,8 +96,9 @@ function iter_eff.parse(word, nextvar, pop)
         iter.push(iterAst.inputs, Var("it"))
     end
     for i in inputs:gmatch("%*") do
-        iter.push(iterAst.inputs, Var(nextvar()))
+        iter.push(iterAst.inputs, pop())
     end
+    iter.reverse(iterAst.inputs)
 
     for i in loop_vars:gmatch("[*_]") do
         if i == "*" then
@@ -113,10 +107,11 @@ function iter_eff.parse(word, nextvar, pop)
             iter.push(iterAst.loop_vars, Var("_"))
         end
     end
+
     return iterAst
 end
 
-function tests.parse_iter()
+function tests.parse_iter_word()
     local stack = ItStack()
     local nextvar, reset = ssa_counter()
     local ast = iter_eff.parse("ipairs[*\\_*]",  nextvar, bind(stack, stack.pop))
@@ -126,8 +121,19 @@ function tests.parse_iter()
     assert(ast.loop_vars[2].var ~= "_", "does not discard second loop var")
 end
 
-local trace = false
+function tests.parse_iter_noname()
+    local stack = ItStack()
+    local nextvar, reset = ssa_counter()
+    local ast = iter_eff.parse("[*\\_*]",  nextvar, bind(stack, stack.pop))
+    assert(ast.word == "", "parsed word")
+    assert(ast.inputs[1].var, "has a var as the input")
+    assert(ast.loop_vars[1].var == "_", "discards first loop var")
+    assert(ast.loop_vars[2].var ~= "_", "does not discard second loop var")
+end
 
+local starts_do_loop = any_of("do", "+do", "do?")
+
+local trace = false
 
 local nextvar, reset_ssa = ssa_counter(1)
 
@@ -139,6 +145,14 @@ function compile_op(op, input, _output, stacks)
     stacks:push(Op(op, a, b))
     input:tok_next()
     return _output, Effect({'a','b'}, {'c'})
+end
+
+function compile_assign_op(op, input, output, stacks)
+    input:tok_next()
+    local varname = input:tok()
+    local var = Var(varname)
+    output:compile(Assign(varname, Op(op, var, stacks:pop())))
+    input:tok_next()
 end
 
 local pre = Buffer()
@@ -230,6 +244,31 @@ function compile(input, output, stacks)
         elseif tok == "<=" then op("<=")
         elseif tok == ">=" then op(">=")
         elseif tok == "neq?" then op("~=")
+        elseif tok == "+=" then 
+            compile_assign_op("+", input, output, stacks)
+            add_effect({"a"}, {}, "+=")
+        elseif tok == "-=" then 
+            compile_assign_op("-", input, output, stacks)
+            add_effect({"a"}, {}, "-=")
+        elseif tok == "*=" then 
+            compile_assign_op("-", input, output, stacks)
+            add_effect({"a"}, {}, "-=")
+        elseif tok == "div=" then 
+            compile_assign_op("/", input, output, stacks)
+            add_effect({"a"}, {}, "div=")
+        elseif tok == "mod=" then 
+            compile_assign_op("%", input, output, stacks)
+            add_effect({"a"}, {}, "mod=")
+        elseif tok == "len" then 
+            stacks:push(UnaryOp("#", stacks:pop()))
+            input:tok_next()
+            add_effect({"a"}, {"#a"}, "len")
+        elseif tok == "t[" then
+            local itvar = Var(nextvar())
+            output:compile(Assign(itvar.var, Barelit("{}"), true))
+            stacks:push_it(itvar)
+            input:tok_next()
+            add_effect({}, {}, "it<")
         elseif tok == "[" then
             local itvar = Var(nextvar())
             output:compile(Assign(itvar.var, stacks:pop(), true))
@@ -247,6 +286,8 @@ function compile(input, output, stacks)
             stacks:push(stacks:peek_it())
             input:tok_next()
             add_effect({}, {'it'}, "it")
+
+
         elseif tok:find("^%.") then
             local prop 
             _, _, prop = tok:find("^%.(.+)")
@@ -270,6 +311,13 @@ function compile(input, output, stacks)
             output:compile(PropSet(name, stacks:pop(), stacks:pop()))
             input:tok_next()
             add_effect({'obj','propval'}, {}, "setter: "..name)
+        elseif tok:find("^->.+") then
+            _,_, name = tok:find("^->(.+)")
+            local val, obj = stacks:pop(), stacks:pop()
+            output:compile(PropSet(name, obj, val))
+            stacks:push(obj)
+            input:tok_next()
+            add_effect({'obj','propval'}, {'obj'}, "setter: "..name)
         elseif tok == "dup" then
             local to_dup = stacks:pop()
             stacks:push(to_dup)
@@ -307,9 +355,9 @@ function compile(input, output, stacks)
             input:tok_next()
         elseif tok:find('^"') then
             local var = Var(nextvar())
-            output:compile(Assign(var, Strlit(tonumber(tok)), true))
-            stacks:push(Var(var))
-            add_effect({}, {var}, "strlit")
+            output:compile(Assign(var.var, Strlit(tok:sub(2, -2)), true))
+            stacks:push(var)
+            add_effect({}, {var.var}, "strlit")
             input:tok_next()
         elseif tok:find("[^(]+%(%)") then -- print(), aka no-args call
             local _,_, name = tok:find("^([^(]+)%(%)$")
@@ -322,6 +370,10 @@ function compile(input, output, stacks)
             local call = Call("")
             if name:find("^%.") then
                 call.call = PropGet(stacks:pop(), name:sub(2)) 
+                add_effect({"obj"}, {}, "obj get call")
+            elseif name:find("^:") then
+                call.call = MethodGet(stacks:pop(), name:sub(2))
+                add_effect({"mobj"}, {}, "obj method call")
             else
                 call.call = Barelit(name) 
             end
@@ -363,12 +415,27 @@ function compile(input, output, stacks)
             end
             merge_effect(call_eff, "ffi-call")
             input:tok_next()
-        elseif tok:find("%[#?[]%]") then
         elseif tok == "table" then
             local new = nextvar()
             output:compile(Assign(new, Barelit("{}"), true))
             stacks:push(Var(new))
             add_effect({}, {'table'}, "tblnew")
+            input:tok_next()
+        elseif tok == "get" then
+            local new = nextvar()
+            local idx = stacks:pop()
+            local on = stacks:pop()
+            output:compile(Assign(new, IdxGet(on, idx), true))
+            stacks:push(Var(new))
+            add_effect({'on', 'idx'}, {'value'}, 'get')
+            input:tok_next()
+        elseif tok == "put" then
+            local new = nextvar()
+            local to = stacks:pop()
+            local idx = stacks:pop()
+            local on = stacks:pop()
+            output:compile(IdxSet(on, idx, to))
+            add_effect({'on','idx','to'},{}, 'put')
             input:tok_next()
         elseif tok == "{" then
             local scan = input:scan_ahead_by(1)
@@ -535,25 +602,59 @@ function compile(input, output, stacks)
                 output:compile(If(cond, if_body.code))
             end
             input:goto_scan(scan)
+        elseif tok == "do" then
+            local from = stacks:pop()
+            local to = stacks:pop()
+            add_effect({"from", "to"}, {}, "do loop")
+            local scan = input:scan_ahead_by(1)
+            local cnt_var = Var(nextvar())
+            stacks:push(cnt_var)
+            local loop_body = iter.collect(scan:upto(balanced(starts_do_loop, "loop")))
+            local loop_code, loop_eff = compile(CompilerInput(loop_body), output:derived(), stacks)
+            loop_eff:assert_matches_depths(1, 0, "do loop body")
+            output:compile(DoRange(from, to, cnt_var, loop_code.code))
+            input:goto_scan(scan)
+        elseif tok == "+do" then
+            local step = stacks:pop()
+            local from = stacks:pop()
+            local to = stacks:pop()
+            add_effect({"from", "to", "step"}, {}, "do loop")
+            local scan = input:scan_ahead_by(1)
+            local cnt_var = Var(nextvar())
+            stacks:push(cnt_var)
+            local loop_body = iter.collect(scan:upto(balanced(starts_do_loop, "loop")))
+            local loop_code, loop_eff = compile(CompilerInput(loop_body), output:derived(), stacks)
+            loop_eff:assert_matches_depths(1, 0, "do loop body")
+            output:compile(DoRangeStep(from, to, step, cnt_var, loop_code.code))
+            input:goto_scan(scan)
         elseif tok == "each" then
             local table_to_each = stacks:pop() 
             add_effect({'to-iter'}, {}, "each-table")
             local scan = input:scan_ahead_by(1)
-            local body = iter.collect(scan:upto(balanced("each", "for")))
+            local body = iter.collect(scan:upto(balanced(any_of("each", iter_eff.is), "for")))
             local iter_var = Var(nextvar())
-
             stacks:push(iter_var)
             local each_body, each_eff = compile(CompilerInput(body), output:derived(), stacks)
             each_eff:assert_matches_depths(1, 0, "each body")
             output:compile(Each(table_to_each, iter_var, each_body.code))
             input:goto_scan(scan)
-        elseif tok == "iter" then
-            local table_to_each = stacks:pop() 
-            add_effect({'to-iter'}, {}, "each-table")
-
-        elseif tok == "do" then
-            error("Do loops not implemented")
-        elseif tok == "for" then
+        elseif iter_eff.is(tok) then
+            local iterAst = iter_eff.parse(tok, nextvar, bind(stacks, stacks.pop))
+            add_effect(iter.map(iterAst.inputs, tostring), {}, "iter inputs")
+            local scan = input:scan_ahead_by(1)
+            local body = iter.collect(scan:upto(balanced(any_of(iter_eff.is, "each"), "for")))
+            local num_loop_vars = 0
+            for iter_var in iter.each(iterAst.loop_vars) do
+                if iter_var.var ~= "_" then
+                    stacks:push(iter_var)
+                    num_loop_vars = num_loop_vars + 1
+                end
+            end
+            local iter_body, iter_eff = compile(CompilerInput(body), output:derived(), stacks)
+            iter_eff:assert_matches_depths(num_loop_vars, 0, "iter_body")
+            iterAst.body = iter_body.code
+            output:compile(iterAst)
+            input:goto_scan(scan)
         else
             pp{tok, output:envkeys()}
 
@@ -561,16 +662,18 @@ function compile(input, output, stacks)
         end 
         
     end
-    print(pre:str().."TOTAL", total_effect)
-    io.write(pre:str()) output:exit()
+    -- print(pre:str().."TOTAL", total_effect)
+    -- io.write(pre:str()) output:exit()
     pre:pop_throw()
     return output, total_effect
 end
 
 function emit(ast, output)
     if not instanceof(ast, Ast) then
-        print(ast)
-        error("Not an AST node")
+        output:push("--[[")
+        output:push(string.format("Unsupported node: %s", ast or "nil"))
+        output:push("]]")
+        return
     end
 
     if instanceof(ast, Block) then
@@ -583,25 +686,73 @@ function emit(ast, output)
         output:push(") do ")
         emit(ast.body, output)
         output:push(" end ")
-    elseif ast.for_iter then
+    elseif instanceof(ast, IdxGet) then
+        emit(ast.on, output)
+        output:push("[")
+        emit(ast.idx, output)
+        output:push("]")
+    elseif instanceof(ast, IdxSet) then
+        emit(ast.on, output)
+        output:push("[")
+        emit(ast.idx, output)
+        output:push("] = ")
+        emit(ast.to, output)
+        output:push(" ")
+    elseif instanceof(ast, DoRange) then
         output:push("for ")
-        for var in iter.each(ast.var_expr) do
-            output:push(var.var)
-            output:push(", ")
-        end
-        output:pop_throw("for") 
-        output:push(" in ")
-        for var in iter.each(ast.for_iter) do
-            output:push(var.var)
-            output:push(", ")
-        end
-        output:pop_throw("iter")
+        emit(ast.loop_var, output)
+        output:push("=")
+        emit(ast.from, output)
+        output:push(", ")
+        emit(ast.to, output)
         output:push(" do ")
-        for stmt in ast.body:each() do
-            emit(stmt, output)
-        end
+        emit(ast.body, output)
         output:push(" end ")
-    elseif ast.fn then
+    elseif instanceof(ast, DoRangeStep) then
+        output:push("for ")
+        emit(ast.loop_var, output)
+        output:push("=")
+        emit(ast.from, output)
+        output:push(", ")
+        emit(ast.to, output)
+        output:push(", ")
+        emit(ast.step, output)
+        output:push(" do ")
+        emit(ast.body, output)
+        output:push(" end ")
+    elseif instanceof(ast, Iter) then
+        output:push("for ")
+        for v in iter.each(ast.loop_vars) do
+            emit(v, output)
+            output:push(", ")
+        end
+        if #ast.loop_vars > 0 then output:pop_throw("iter.loop_vars") end
+        output:push(" in ")
+        if #ast.word > 0 then
+            output:push(ast.word)
+            output:push("(")
+            for inp in iter.each(ast.inputs) do 
+                emit(inp, output)
+                output:push(", ") 
+            end
+            if #ast.inputs > 0 then output:pop_throw("iter.inputs") end
+            output:push(")")
+        else
+            for inp in iter.each(ast.inputs) do 
+                emit(inp, output)
+                output:push(", ") 
+            end
+            if #ast.inputs > 0 then output:pop_throw("iter.inputs") end
+        end
+        output:push(" do ")
+        emit(ast.body, output)
+        output:push(" end ")
+    elseif instanceof(ast, UnaryOp) then
+        output:push("(")
+        output:push(ast.op)
+        emit(ast.a, output)
+        output:push(")")
+    elseif instanceof(ast, Fn) then
         output:push('function ')
         if ast.fn ~= AnonFnName then
             output:push(ast.actual)
@@ -619,6 +770,10 @@ function emit(ast, output)
             emit(stmt, output)
         end
         output:push(" end\n")
+    elseif instanceof(ast, MethodGet) then
+        emit(ast.on, output)
+        output:push(":"..ast.name)
+        output:push("")
     elseif ast.cond and ast.when_true and ast.when_false then
         output:push(" if ")
         emit(ast.cond, output)
@@ -714,19 +869,20 @@ function emit(ast, output)
     else
         output:push("--[[")
         output:push(string.format("Unsupported node: %s", ast or "nil"))
-        error("Unsupported ast node!")
+        output:push("]]")
     end
 end
 
 
-function to_lua(ast)
+function to_lua(ast, out)
+    out = out or io.stdout
     local output = Buffer()
     -- pp{output}
     local ok, err = pcall(emit, ast, output)
     -- pp("ERR?",ok, err, output)
     if ok then
         local towrite = output:str():gsub("[ \t]+", " ")
-        io.write(towrite)
+        out:write(towrite)
     else
         for i=1,4 do print(string.rep("*", 40)) end
         print("unsupported ast")
@@ -764,6 +920,32 @@ function main()
             print()
             argIdx = argIdx + 2
         elseif arg[argIdx] == "--compile" then
+            local f = io.open(arg[argIdx + 1], "r")
+            local str = f:read("*a")
+            local toks = lex(str)
+            local out_f = io.open(arg[argIdx + 2], "w")
+            local output = CompilerOutput(rootEnv()) 
+            local input = CompilerInput(toks)
+            local stacks = ExprState("toplevel expression", "toplevel subject")
+            local ast = compile(input, output, stacks).code
+
+            for n in ast:each() do
+                to_lua(n, out_f)
+            end
+            argIdx = argIdx + 3
+            --[[
+            local buf = Buffer()
+            if stacks.stack:size() > 0 then
+                buf:push(" return ")
+                for n in stacks.stack:each() do
+                    emit(n, buf)
+                    buf:push(", ")
+                end
+                buf:pop_throw()
+            end
+            ]]
+
+        elseif arg[argIdx] == "--comptest" then
             for i=1,4 do
                 print(string.rep("*", 30) )
             end

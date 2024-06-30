@@ -109,6 +109,17 @@ function Op:__tostring()
     return "Op("..s(self.op).." "..s(self.a).." "..s(self.b)..")"
 end
 
+UnaryOp = Ast:extend()
+
+function UnaryOp:new(op, a, b)
+    self.op = op
+    self.a = a
+end
+
+function UnaryOp:__tostring()
+    return "UnaryOp("..s(self.op).." "..s(self.a)..")"
+end
+
 Declare = Ast:extend()
 
 function Declare:new()
@@ -208,6 +219,45 @@ function PropGet:__tostring()
     return string.format("PropGet(%s, on: %s)", self.prop_set, self.value)
 end
 
+MethodGet = Ast:extend()
+
+function MethodGet:new(on, name)
+    self.on = on
+    self.name = name
+end
+
+function MethodGet:__tostring()
+    return string.format("MethodGet(%s, on: %s)", self.on, self.name)
+end
+
+
+IdxGet = Ast:extend()
+
+function IdxGet:new(on, idx)
+    self.on = on
+    self.idx = idx
+end
+
+function IdxGet:__tostring()
+    return string.format("IdxGet(%s, on: %s)", self.idx, self.on)
+end
+
+IdxSet = Ast:extend()
+
+function IdxSet:new(on, idx, to)
+    self.on = on
+    self.idx = idx
+    self.to = to
+end
+
+function IdxSet:__tostring()
+    return string.format("IdxSet(at: %s, on: %s, to: %s)", 
+        self.idx,
+        self.on,
+        self.to
+    )
+end
+
 For = Ast:extend()
 
 function For:new()
@@ -239,6 +289,41 @@ function Each:__tostring()
     )
 end
 
+DoRange = Ast:extend()
+
+function DoRange:new(from, to, var, body)
+    self.from = from
+    self.to = to
+    self.loop_var = var
+    self.body = body or Block()
+end
+
+function DoRange:__tostring()
+    return string.format("DoRange(%s,%s do %s)",
+        self.from,
+        self.to,
+        self.body
+    )
+end
+
+DoRangeStep = Ast:extend()
+
+function DoRangeStep:new(from, to, step, var, body)
+    self.from = from
+    self.to = to
+    self.step = step
+    self.loop_var = var
+    self.body = body or Block()
+end
+
+function DoRangeStep:__tostring()
+    return string.format("DoRange(%s,%s,%s do %s)",
+        self.from,
+        self.to,
+        self.step,
+        self.body
+    )
+end
 
 Iter = Ast:extend()
 
@@ -249,9 +334,18 @@ function Iter:new(word, inputs, loop_vars, body)
     self.body = body or {}
 end
 
+function Iter:__tostring()
+    return string.format("Iter(%s in %s(%s) do %s)",
+        iter.str(self.loop_vars, ", "),
+        self.word,
+        iter.str(self.inputs, ", "),
+        self.body
+    )
+end
 
 function mangle_name(n)
-    n = n:gsub("[?#/\\-]", {
+    n = n:gsub("[?#/\\-%,]", {
+        [','] = "_comma_",
         ['#'] = "_hash_",
         ['/'] = "_slash_",
         ['\\'] = '_backslash_',

@@ -38,7 +38,7 @@ function Effect:assert_matches_depths(i, o, fn)
 	return (#self.in_eff == i and #self.out_eff == o) 
 	or error(
 		string.format("Stack effect mismatch in %s! expected %s, got %s", 
-		fn, self, mouse_notation(i, o) ))
+		fn, mouse_notation(i, o), self))
 end
 
 function Effect:__concat(other)

@@ -7,7 +7,7 @@ return function(input)
         if not input:find("%S+", pos) then break end
         _, _, new_tok, new_pos = input:find("(%S+)()", pos)
         pos = new_pos
-        if new_tok:find("^\\") then 
+        if new_tok:find("^\\$") then 
             _, _, pos = input:find("[^\r\n]+[\r\n]+()", pos)
         elseif new_tok:find('^"') then
             local quote_scanning = true

@@ -1,3 +1,4 @@
+
 : even? ( a -- ? ) 2 mod 0 eq? ;
 : dup2 { a b -- a b a b } a b a b ;
 : sum ( t -- sum ) 0 { sum } each sum + { sum } for sum ;
@@ -40,8 +41,24 @@
  : printall ( t -- ) each print(*) for ;
 
  : NL ( -- ) print() ;
- : tsum ( t -- sum ) 0 { s } each s + { s } for s ;
+: tsum1 ( t -- sum ) 0 { s } each s + { s } for s ;
+: tsum2 ( t -- sum ) 0 { s } ipairs[*\_*] s + { s } for s ;
+: tsum3 ( t -- sum ) 0 { s } ipairs(*\***) [***\_*] s + { s } for s ;
+: push ( t v -- t ) [ dup ] table.insert(**) ;
+: , ( # v -- ) table.insert(#*) ;
+: zerot ( t -- t ) 0 ->x 0 ->y 0 ->z ;
+: ptv2 ( -- t ) table 0 ->x 0 ->y 0 ->z ;
+: ptv3 ( -- t ) t[ 0 >>x 0 >>y 0 >>z ] ;
 
+: erpad ( u -- v ) table swap get ;
 
+  : chars ( str -- t ) t[ ] { c } [ it len 1 do dup it :sub(**\*) c swap table.insert(**) loop ]. c ; 
+  : char-iter { str -- fn } 1 { i } : ( -- c ) i i str string.sub(***\*) 1 += i ; ; 
+  \  function char_iter(str) local i = 1 return function () local ret = str:sub(i,i) i = i + 1 return ret end end 
+
+  \ function chars(s) local t = {} for i=1,#s do local s = s:sub(i,i) table.insert(t, s) end return t end
+
+: do-loop ( -- ) 10 1 do { a } loop ;
+: do-loop-step ( -- ) 1 10 -1 +do { b } loop ;
 
 

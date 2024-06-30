@@ -1,4 +1,5 @@
 local Object = require("classic")
+local pprint = require("pprint")
 
 Scanner = Object:extend()
 
@@ -15,6 +16,15 @@ end
 
 function Scanner:go_next() self.idx = self.idx + 1 end
 function Scanner:at() return self._fetch(self.subject, self.idx) end
+
+function matcher(of)
+	if type(of) == "function" then
+        return of
+	else
+	    return function(el) return el == of end
+	end
+end
+
 function Scanner:upto(target)
 	local pred
 	if type(target) == "function" then
@@ -51,11 +61,29 @@ function Scanner:rest()
 	end
 end
 
+function any_of(...)
+    local options = {...}
+    for i, v in ipairs(options) do
+        options[i] = matcher(v)
+    end
+
+    return function(el)
+        for _, pred in ipairs(options) do
+            if pred(el) then
+                return true
+            end
+        end
+        return false
+    end
+end
+
 function balanced(down, up)
+    local is_down = matcher(down)
+    local is_up = matcher(up)
     local depth = 1
     return function(el)
-        if el == down then depth = depth + 1 end
-        if el == up then depth = depth - 1 end
-        return el == up and depth == 0
+        if is_down(el)  then depth = depth + 1 end
+        if is_up(el) then depth = depth - 1 end
+        return is_up(el) and depth == 0
     end
 end
