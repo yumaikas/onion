@@ -29,6 +29,7 @@ function Buffer.__add(b, v)
 end
 function Buffer:push(val) table.insert(self.items, val) return self end
 function Buffer:peek() return self.items[#self.items] end
+function Buffer:put(idx, val) self.items[idx] = val end
 function Buffer:each() return iter.each(self.items) end
 function Buffer:concat(sep) return table.concat(self.items, sep) end
 function Buffer:str() return self:concat("") end

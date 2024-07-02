@@ -75,6 +75,7 @@ function ExprStack:push(value)
     self.storage:push(value) 
 end
 
+function ExprStack:put(idx, val) self.storage:put(idx, val) end
 
 function ExprStack:peek() return self.storage:peek() end
 function ExprStack:size() return self.storage:size() end

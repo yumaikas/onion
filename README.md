@@ -29,11 +29,11 @@ A Stack language compiled to lua. Aims to be like a bit like forth, with concess
 - [x] `if .. else .. then`
 - [x] `do .. loop`
 - [x] `+do .. loop` 
+- [ ] `do? while .. loop`
 - [x] `each .. for`
 - [x] `ipairs[*\*] .. for`
 - [x] `ipairs(*\***) [***\*] .. for`
 - [x] `val += var` and friends
-- [ ] `while .. repeat`
 - [x] `[ .. ].` 
 - [x] `[ .. ]`
 - [x] `.get`

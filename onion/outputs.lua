@@ -45,7 +45,6 @@ function Env:keys()
 	return ret
 end
 
-
 function CompilerOutput:new(env, code, def_depth)
 	self.env = env or Env()
 	self.code = code or Block()

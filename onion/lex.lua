@@ -1,14 +1,19 @@
 return function(input)
+    input = input.." "
     local pos = 0
     local tokens = {}
     local tok, new_tok
     local newpos
     while pos < #input do
+        
         if not input:find("%S+", pos) then break end
-        _, _, new_tok, new_pos = input:find("(%S+)()", pos)
+        _, _, new_tok, spacing, new_pos = input:find("(%S+)([\r\n\t ]*)()", pos)
         pos = new_pos
+
         if new_tok:find("^\\$") then 
             _, _, pos = input:find("[^\r\n]+[\r\n]+()", pos)
+        elseif new_tok:find('^"') and new_tok:find('"$') then
+            table.insert(tokens, new_tok)
         elseif new_tok:find('^"') then
             local quote_scanning = true
             local scan_tok
@@ -28,6 +33,12 @@ return function(input)
             table.insert(tokens, new_tok)
         else
             table.insert(tokens, new_tok)
+        end
+        if spacing:find("[\r\n]") then
+            _, _, pre = spacing:find("[\r\n]+(%s+)")
+            if pre then
+                table.insert(tokens, "\n"..pre)
+            end
         end
     end
     return tokens

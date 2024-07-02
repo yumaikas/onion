@@ -84,6 +84,12 @@ function Assign:__tostring()
     end
 end
 
+Whitespace = Ast:extend()
+
+function Whitespace:new(ws)
+    self.ws = ws
+end
+
 Barelit = Ast:extend()
 
 function Barelit:new(to_print) self.barelit = to_print end

@@ -26,7 +26,7 @@ function pp(...)
     pprint(...)
 end
 
-function cond(pred, if_true, if_false)
+local function cond(pred, if_true, if_false)
     if pred then return if_true else return if_false end
 end
 
@@ -36,7 +36,7 @@ function bind(obj, fn)
     end
 end
 
-function ssa_counter(start)
+local function ssa_counter(start)
     local ssa_idx = start or 1
 
     return function()
@@ -46,7 +46,7 @@ function ssa_counter(start)
     end, function (to) ssa_idx = to end
 end
 
-function parse_if_then_else(seq)
+local function parse_if_then_else(seq)
     local ret = {{}}
     local depth = 0
     for iv in iter.each(seq) do
@@ -137,7 +137,7 @@ local trace = false
 
 local nextvar, reset_ssa = ssa_counter(1)
 
-function compile_op(op, input, _output, stacks)
+local function compile_op(op, input, _output, stacks)
     local err_info = {op=op, tok, idx, code}
     -- pp{OP=op}
     local b = stacks:pop(err_info)
@@ -147,7 +147,7 @@ function compile_op(op, input, _output, stacks)
     return _output, Effect({'a','b'}, {'c'})
 end
 
-function compile_assign_op(op, input, output, stacks)
+local function compile_assign_op(op, input, output, stacks)
     input:tok_next()
     local varname = input:tok()
     local var = Var(varname)
@@ -157,9 +157,9 @@ end
 
 local pre = Buffer()
 
-function compile(input, output, stacks)
-    io.write(pre:str()) output:enter()
-    pre:push("    ")
+local function compile(input, output, stacks)
+    -- io.write(pre:str()) output:enter()
+    -- pre:push("    ")
     local function dbg()
         pp({
             input=input,
@@ -175,11 +175,11 @@ function compile(input, output, stacks)
     local function add_effect(a, b, ctx)
         local eff = Effect(a, b)
         total_effect = total_effect..eff
-        print(pre:str().."a", ctx, tok, total_effect, eff)
+        -- print(pre:str().."a", ctx, tok, total_effect, eff)
     end
     local function merge_effect(eff, ctx)
         total_effect = total_effect .. eff
-        print(pre:str().."m", ctx, tok, total_effect, eff)
+        -- print(pre:str().."m", ctx, tok, total_effect, eff)
     end
 
     local stack_height = stacks.stack:size()
@@ -286,8 +286,6 @@ function compile(input, output, stacks)
             stacks:push(stacks:peek_it())
             input:tok_next()
             add_effect({}, {'it'}, "it")
-
-
         elseif tok:find("^%.") then
             local prop 
             _, _, prop = tok:find("^%.(.+)")
@@ -323,6 +321,7 @@ function compile(input, output, stacks)
             stacks:push(to_dup)
             stacks:push(to_dup)
             input:tok_next()
+
             add_effect({'x'}, {'x','x'}, "dup")
         elseif tok == "nip" then
             local keep = stacks:pop()
@@ -352,6 +351,16 @@ function compile(input, output, stacks)
             output:compile(Assign(var, Barelit(tonumber(tok)), true))
             stacks:push(Var(var))
             add_effect({}, {var}, "number")
+            input:tok_next()
+        elseif tok == "nil" then
+            local var = nextvar()
+            output:compile(Assign(var, Barelit("nil"), true))
+            stacks:push(Var(var))
+            add_effect({}, {var}, "number")
+            input:tok_next()
+
+        elseif tok:find("^[\r\n]") then
+            output:compile(Whitespace(tok))
             input:tok_next()
         elseif tok:find('^"') then
             local var = Var(nextvar())
@@ -575,8 +584,8 @@ function compile(input, output, stacks)
                 end
 
                 output:compile(If(cond, arm_true.code, arm_false.code))
-                print(pre:str().."true_eff", eff_true)
-                print(pre:str().."false_eff", eff_false)
+                -- print(pre:str().."true_eff", eff_true)
+                -- print(pre:str().."false_eff", eff_false)
                 merge_effect(eff_true, "if-else")
             else
                 local barrier = stacks:barrier(nextvar)
@@ -660,15 +669,21 @@ function compile(input, output, stacks)
 
             error("Unexpected token: " .. tok)
         end 
-        
+    end
+    if output:is_toplevel() then
+        local ret = Return()
+        for r in stacks.stack:each() do
+            ret:push(r)
+        end
+        output:compile(ret)
     end
     -- print(pre:str().."TOTAL", total_effect)
     -- io.write(pre:str()) output:exit()
-    pre:pop_throw()
+    -- pre:pop_throw()
     return output, total_effect
 end
 
-function emit(ast, output)
+local function emit(ast, output)
     if not instanceof(ast, Ast) then
         output:push("--[[")
         output:push(string.format("Unsupported node: %s", ast or "nil"))
@@ -680,6 +695,8 @@ function emit(ast, output)
         for item in ast:each() do
             emit(item, output)
         end
+    elseif instanceof(ast, Whitespace) then
+        output:push(ast.ws)
     elseif instanceof(ast, Each) then
         output:push("for _, " .. ast.itervar.var .. " in ipairs(")
         emit(ast.input, output)
@@ -699,7 +716,7 @@ function emit(ast, output)
         emit(ast.to, output)
         output:push(" ")
     elseif instanceof(ast, DoRange) then
-        output:push("for ")
+        output:push(" for ")
         emit(ast.loop_var, output)
         output:push("=")
         emit(ast.from, output)
@@ -709,7 +726,7 @@ function emit(ast, output)
         emit(ast.body, output)
         output:push(" end ")
     elseif instanceof(ast, DoRangeStep) then
-        output:push("for ")
+        output:push(" for ")
         emit(ast.loop_var, output)
         output:push("=")
         emit(ast.from, output)
@@ -721,7 +738,7 @@ function emit(ast, output)
         emit(ast.body, output)
         output:push(" end ")
     elseif instanceof(ast, Iter) then
-        output:push("for ")
+        output:push(" for ")
         for v in iter.each(ast.loop_vars) do
             emit(v, output)
             output:push(", ")
@@ -753,7 +770,7 @@ function emit(ast, output)
         emit(ast.a, output)
         output:push(")")
     elseif instanceof(ast, Fn) then
-        output:push('function ')
+        output:push(' function ')
         if ast.fn ~= AnonFnName then
             output:push(ast.actual)
         end
@@ -769,7 +786,7 @@ function emit(ast, output)
         for stmt in ast.body:each() do
             emit(stmt, output)
         end
-        output:push(" end\n")
+        output:push(" end ")
     elseif instanceof(ast, MethodGet) then
         emit(ast.on, output)
         output:push(":"..ast.name)
@@ -781,7 +798,7 @@ function emit(ast, output)
         for stmt in ast.when_true:each() do
             emit(stmt, output)
         end
-        output:push(" else ")
+        output:push(" else")
         for stmt in ast.when_false:each() do
             emit(stmt, output)
         end
@@ -794,7 +811,7 @@ function emit(ast, output)
             -- pp(stmt)
             emit(stmt, output)
         end
-        output:push(" end ")
+        output:push(" end")
     elseif ast.prop_set then
         emit(ast.on, output)
         output:push("."..ast.prop_set)
@@ -836,7 +853,7 @@ function emit(ast, output)
     elseif ast.strlit ~= nil then
         output:push(string.format("%q", ast.strlit))
     elseif ast.ret then
-        output:push("return ")
+        output:push(" return ")
         for v in ast.ret:each() do
             emit(v, output)
             output:push(", ")
@@ -844,7 +861,7 @@ function emit(ast, output)
         output:pop_throw("returns")
     elseif ast.call then
         if #ast.rets > 0 then
-            output:push("local ")
+            output:push(" local ")
         end
         for r in iter.each(ast.rets) do
             output:push(r)
@@ -855,6 +872,7 @@ function emit(ast, output)
             output:push(" = ")
         end
         --pp(ast)
+        output:push(" ")
         emit(ast.call, output)
         output:push("(")
         for a in iter.each(ast.args) do
@@ -864,7 +882,7 @@ function emit(ast, output)
         if #ast.args > 0 then
             output:pop_throw("call args")
         end
-        output:push(") ")
+        output:push(")")
 
     else
         output:push("--[[")
@@ -873,117 +891,110 @@ function emit(ast, output)
     end
 end
 
-
-function to_lua(ast, out)
-    out = out or io.stdout
-    local output = Buffer()
-    -- pp{output}
-    local ok, err = pcall(emit, ast, output)
-    -- pp("ERR?",ok, err, output)
-    if ok then
-        local towrite = output:str():gsub("[ \t]+", " ")
-        out:write(towrite)
-    else
-        for i=1,4 do print(string.rep("*", 40)) end
-        print("unsupported ast")
-        print(ast)
-        error(err)
-    end
-    -- pp(output)
-    --[[ local chk, err=load(towrite)
-    if err then error(err) 
-    else
-        chk()
-    end
-    ]]
-
-
-end
-
-function rootEnv()
+local function rootEnv()
     local ret = Env()
     ret:def("ipairs", Fn("ipairs",nil, {Var("t")}, {Var("f"), Var("s"), Var("v")}))
     return ret
 end
 
-function main()
-
-    local argIdx = 1
-    while argIdx <= #arg do
-        if arg[argIdx] == "--lex" then
-            local f = io.open(arg[argIdx + 1], "r")
-            local str = f:read("*a")
-            local toks = lex(str)
-            for i,t in ipairs(toks) do
-                io.write("["..t .. "] ")
-            end
-            print()
-            argIdx = argIdx + 2
-        elseif arg[argIdx] == "--compile" then
-            local f = io.open(arg[argIdx + 1], "r")
-            local str = f:read("*a")
-            local toks = lex(str)
-            local out_f = io.open(arg[argIdx + 2], "w")
-            local output = CompilerOutput(rootEnv()) 
-            local input = CompilerInput(toks)
-            local stacks = ExprState("toplevel expression", "toplevel subject")
-            local ast = compile(input, output, stacks).code
-
-            for n in ast:each() do
-                to_lua(n, out_f)
-            end
-            argIdx = argIdx + 3
-            --[[
-            local buf = Buffer()
-            if stacks.stack:size() > 0 then
-                buf:push(" return ")
-                for n in stacks.stack:each() do
-                    emit(n, buf)
-                    buf:push(", ")
-                end
-                buf:pop_throw()
-            end
-            ]]
-
-        elseif arg[argIdx] == "--comptest" then
-            for i=1,4 do
-                print(string.rep("*", 30) )
-            end
-            print()
-            local f = io.open(arg[argIdx + 1], "r")
-            local str = f:read("*a")
-            local toks = lex(str)
-            local output = CompilerOutput(rootEnv()) 
-            local input = CompilerInput(toks)
-            local stacks = ExprState("toplevel expression", "toplevel subject")
-            local ast = compile(input, output, stacks).code
-            --pprint(output.def_depth)
-            print(table.concat(toks, " "):gsub(";%s+", ";\r\n"))
-            -- print(str) print()
-            -- to_lua(output.env)
-            -- pp(ast)
-            for n in ast:each() do
-                to_lua(n)
-            end
-
-            local buf = Buffer()
-            if stacks.stack:size() > 0 then
-                buf:push(" return ")
-                for n in stacks.stack:each() do
-                    emit(n, buf)
-                    buf:push(", ")
-                end
-                buf:pop_throw()
-            end
-            -- io.write(buf:str())
-
-            argIdx = argIdx + 2
-            print() print()
-        else
-            error("Unrecognized arg: " .. arg[argIdx])
-        end
+local function eval_ast_as_lua(ast)
+    local output = Buffer()
+    local ok, err = pcall(emit, ast, output)
+    if not ok then error(err) end
+    local lua_code = output:str()
+    local maybe_fn, msg = pcall(load, lua_code)
+    if maybe_fn then
+        return maybe_fn()
+    else
+        error(msg)
     end
 end
 
-main()
+local function compile_ast_to_lua(ast)
+    local output = Buffer()
+    local ok, err = pcall(emit, ast, output)
+    local lua_code = output:str()
+    return lua_code
+end
 
+local function compile_ast_as_chunk(ast, name, env)
+    local output = Buffer()
+    local ok, err = pcall(emit, ast, output)
+    if not ok then error(err) end
+    local lua_code = output:str()
+    local maybe_fn, msg_or_ret = load(lua_code, name, "t", env)
+    if maybe_fn then
+        return maybe_fn
+    else
+        error(msg)
+    end
+end
+
+local onion = {}
+
+function onion.load(code, name, env)
+    local toks = lex(code)
+    local ast, _ = compile(
+        CompilerInput(toks),
+        CompilerOutput(rootEnv()),
+        ExprState("toplevel expression", "toplevel subject")
+    )
+    return compile_ast_as_chunk(ast.code, name, env or _G)
+end
+
+function onion.eval(code)
+    local toks = lex(code)
+    local ast, _ = compile(
+        CompilerInput(toks),
+        CompilerOutput(rootEnv()),
+        ExprState("toplevel expression", "toplevel subject")
+    )
+    return eval_ast_as_lua(ast.code)
+end
+
+function onion.compile(code)
+    local toks = lex(code)
+    local ast, _ = compile(
+        CompilerInput(toks),
+        CompilerOutput(rootEnv()),
+        ExprState("toplevel expression", "toplevel subject")
+    )
+    return compile_ast_to_lua(ast.code)
+end
+
+function onion.repl_session()
+    local onionEnv = rootEnv()
+    local fnEnv = {cont=true}
+    local exprState = ExprState(
+        "toplevel expression", "toplevel subject"
+    )
+    local stack = {}
+    setmetatable(fnEnv, {__index=_G})
+
+    local ret = {}
+    local repl_idx = 0
+    function ret.eval(line)
+        local toks = lex(line)
+        local ast, eff = compile(
+            CompilerInput(toks),
+            CompilerOutput(onionEnv),
+            exprState
+        )
+        repl_idx = repl_idx + 1
+        local chunk = compile_ast_as_chunk(ast.code, "repl:"..repl_idx, fnEnv)
+        for i=1, exprState.stack:size() do
+            exprState.stack:put(i,Barelit("(({...})["..i.."])")) 
+        end
+        
+        stack = table.pack(chunk(table.unpack(stack)))
+        return stack
+    end
+    function ret.should_continue()
+        return fnEnv.cont
+    end
+
+    return ret
+end
+
+
+return onion
