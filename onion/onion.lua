@@ -798,20 +798,20 @@ local function emit(ast, output)
         for stmt in ast.when_true:each() do
             emit(stmt, output)
         end
-        output:push(" else")
+        output:push(" else ")
         for stmt in ast.when_false:each() do
             emit(stmt, output)
         end
         output:push(" end ")
     elseif ast.cond and ast.when_true then
-        output:push("if ")
+        output:push(" if ")
         emit(ast.cond, output)
         output:push(" then ")
         for stmt in ast.when_true:each() do
             -- pp(stmt)
             emit(stmt, output)
         end
-        output:push(" end")
+        output:push(" end ")
     elseif ast.prop_set then
         emit(ast.on, output)
         output:push("."..ast.prop_set)
@@ -833,7 +833,7 @@ local function emit(ast, output)
         emit(ast.value, output)
         output:push(" ")
     elseif ast.decl then
-        output:push("local ")
+        output:push(" local ")
         for d in iter.each(ast.decl) do
             output:push(d)
             output:push(",")
