@@ -1,3 +1,18 @@
+: r: ( path -- module ) require(*\*) ;
+: r! ( path -- ) require(*) ;
+
+require{ 
+    "pprint" pprint 
+    "lex" lex
+    "buffer" Buffer
+    "effects" Effect
+    "classic" Object
+    "ast" _
+    "inputs" _
+    "stack" _
+    "scanner" _
+} 
+
 
 : even? ( a -- ? ) 2 mod 0 eq? ;
 : dup2 { a b -- a b a b } a b a b ;

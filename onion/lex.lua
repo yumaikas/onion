@@ -9,7 +9,6 @@ return function(input)
         if not input:find("%S+", pos) then break end
         _, _, new_tok, spacing, new_pos = input:find("(%S+)([\r\n\t ]*)()", pos)
         pos = new_pos
-
         if new_tok:find("^\\$") then 
             _, _, pos = input:find("[^\r\n]+[\r\n]+()", pos)
         elseif new_tok:find('^"') and new_tok:find('"$') then
@@ -35,10 +34,7 @@ return function(input)
             table.insert(tokens, new_tok)
         end
         if spacing:find("[\r\n]") then
-            _, _, pre = spacing:find("[\r\n]+(%s+)")
-            if pre then
-                table.insert(tokens, "\n"..pre)
-            end
+            table.insert(tokens, spacing)
         end
     end
     return tokens

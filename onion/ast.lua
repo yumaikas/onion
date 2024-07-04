@@ -70,7 +70,6 @@ Input = Box:extend()
 Assign = Ast:extend()
 
 function Assign:new(target, value, new)
-    -- self.dbg = debug.getinfo(3)
     self.assign=target
     self.value=value
     self.new = new or false
@@ -349,8 +348,47 @@ function Iter:__tostring()
     )
 end
 
+RequirePair = Ast:extend()
+
+function RequirePair:new(from, to)
+    self.from = from
+    self.to = to
+end
+
+function RequirePair:__tostring()
+    return "RequirePair(".. self.to .. " = " .. self.from .. ")"
+end
+
+Require = Ast:extend()
+function Require:new(from) self.from = from end
+function Require:__tostring() return "Require("..self.from..")" end
+
+RequireList = Ast:extend()
+
+function RequireList:new(list)
+    self.list = list
+end
+
+function RequireList:push(item)
+    if not (instanceof(item, Require) or instanceof(item, RequireList)) then
+        error("Cannot add "..tostring(item).." to a RequireList")
+    else
+        iter.push(self.list, item)
+    end
+end
+
+function RequireList:__tostring()
+    return string.format("Requires(%s)",
+        iter.str(iter.map(self.list, function(l) return l.to.." = "..l.from  end), ", ")
+    )
+
+end
+
+
 function mangle_name(n)
-    n = n:gsub("[?#/\\-%,]", {
+    n = n:gsub("[?#/\\-%,!]", {
+
+        ['!'] = "_bang_",
         [','] = "_comma_",
         ['#'] = "_hash_",
         ['/'] = "_slash_",

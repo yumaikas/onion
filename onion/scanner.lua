@@ -3,6 +3,14 @@ local pprint = require("pprint")
 
 Scanner = Object:extend()
 
+function matcher(of)
+	if type(of) == "function" then
+        return of
+	else
+	    return function(el) return el == of end
+	end
+end
+
 function Scanner:new(t, idx)
 	self.subject = t
 	self.idx = idx
@@ -17,13 +25,6 @@ end
 function Scanner:go_next() self.idx = self.idx + 1 end
 function Scanner:at() return self._fetch(self.subject, self.idx) end
 
-function matcher(of)
-	if type(of) == "function" then
-        return of
-	else
-	    return function(el) return el == of end
-	end
-end
 
 function Scanner:upto(target)
 	local pred
@@ -44,7 +45,7 @@ function Scanner:upto(target)
 				error(pprint.pformat(target).." not found!")
 			end
 			self:go_next()
-			return null
+			return nil
 		end
 	end
 end

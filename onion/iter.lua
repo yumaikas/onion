@@ -21,6 +21,25 @@ function iter.each(t)
     end
 end
 
+function iter.pairwise(t)
+    local i = 1
+
+    if #t % 2 ~= 0 then
+        error("Cannot loop pairwise over uneven table")
+    end
+
+    return function()
+        if i > #t then
+            return nil
+        else
+            local ra, rb = t[i], t[i+1]
+            i = i + 2
+            return ra, rb
+        end
+    end
+
+end
+
 function iter.reverse(tab) 
     for i = 1, #tab//2, 1 do
         tab[i], tab[#tab-i+1] = tab[#tab-i+1], tab[i]

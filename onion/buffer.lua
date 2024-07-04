@@ -1,32 +1,26 @@
 local Object = require("classic")
 local iter = require("iter")
 
-local EmptyBuffer = Object:extend()
-
-function EmptyBuffer:__tostring()
-    return "[EmptyBuffer]"
-end
-
 local Buffer = Object:extend()
 
-Buffer.EOS = EmptyBuffer()
 
 function Buffer:new(items)
     self.items = items or {}
-end
-
-function Buffer:__tostring()
-    return "Buffer"
 end
 
 function Buffer.from(...)
     return Buffer({...})
 end
 
+function Buffer:__tostring()
+    return "Buffer"
+end
+
 function Buffer.__add(b, v)
     b:push(v)
     return v
 end
+
 function Buffer:push(val) table.insert(self.items, val) return self end
 function Buffer:peek() return self.items[#self.items] end
 function Buffer:put(idx, val) self.items[idx] = val end
@@ -45,11 +39,8 @@ end
 
 function Buffer:pop_throw(msg) 
     local ok, item = self:pop_check()
-    if not ok then
-        error(msg)
-    else
-        return item
-    end
+    assert(ok, msg)
+    return item
 end
 
 function Buffer:collect(iter)
@@ -63,10 +54,7 @@ function Buffer:last(n)
     return iter.last(self.items, n)
 end
 
-function Buffer:copy()
-    return Buffer():collect(self:each())
-end
-
+function Buffer:copy() return Buffer():collect(self:each()) end
 
 return Buffer
 
