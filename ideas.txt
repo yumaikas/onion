@@ -1,0 +1,14 @@
+Structural: 
+- [x] if/else/then
+- [x] { var assignments }
+- [ ] require{ } (do I want this, or do I just need to special case require?)
+- [x?] : (  -- ) ; \ anonymous
+- [x?] : named {  -- } ;
+- [x?] : (*\*) + ; \ short-effect
+- [x] do loop
+- [x] +do loop
+- [x] do? while loop
+- [ ] cond when of then when of then end
+- [x] each .. for
+- [x] [*\*] .. for \ iter effects
+

@@ -1,24 +1,13 @@
 : r: ( path -- module ) require(*\*) ;
 : r! ( path -- ) require(*) ;
 
-require{ 
-    "pprint" pprint 
-    "lex" lex
-    "buffer" Buffer
-    "effects" Effect
-    "classic" Object
-    "ast" _
-    "inputs" _
-    "stack" _
-    "scanner" _
-} 
-
+\ require{ "pprint" pprint "lex" lex "buffer" Buffer "effects" Effect "classic" Object "ast" _ "inputs" _ "stack" _ "scanner" _ } 
 
 : even? ( a -- ? ) 2 mod 0 eq? ;
 : dup2 { a b -- a b a b } a b a b ;
 : sum ( t -- sum ) 0 { sum } each sum + { sum } for sum ;
 : ?print-if-even ( n -- ) dup even? if drop else print(*) then ;
-: tsum-evens ( t -- sum ) 0 { sum } each dup even? if sum + { sum } else drop then for sum ;
+: tsum-evens ( t -- sum ) 0 { sum } each dup even? if += sum else drop then for sum ;
 
 : square ( a -- 'a ) dup * ;
 : cube ( a -- 'a ) dup dup * * ;
@@ -74,5 +63,10 @@ require{
 
 : do-loop ( -- ) 10 1 do { a } loop ;
 : do-loop-step ( -- ) 1 10 -1 +do { b } loop ;
+: do-while-loop ( -- ) do? true while "Hello Onion!" print(*) loop ;
+
+: ab-str ( -- str ) "a" "b" .. ;
+: derpy ( -- str ) "as the dog runs " ;
+: erpy ( -- str ) "as the dog runs" ;
 
 

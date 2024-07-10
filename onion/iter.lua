@@ -12,6 +12,22 @@ function iter.t()
     return Table()
 end
 
+function iter.f(code)
+    local lua = ("-> @ "..code.." ;")
+    :gsub("->", "return")
+    :gsub("let", "local")
+    :gsub("@", "function")
+    :gsub(";", "end")
+    :gsub("([%w%.]+)([+-/%*])=([%w%.]+)", "%1 = %1 %2 %3")
+    :gsub("([%w%.]+):|([%w%.]+)", "%1 = %1 or %2")
+    :gsub("([%w%.]+):&([%w%.]+)", "%1 = %1 and %2")
+    :gsub("each%(([^)]+)%)", "for i,v in ipairs(%1) do ")
+
+    local val, msg = load(lua)
+    if not val then print(lua) end
+    return assert(val, msg)()
+end
+
 function iter.each(t)
     local i = 1
     return function()
@@ -57,6 +73,8 @@ function iter.copy(t)
     return iter.collect(iter.each(t))
 end
 
+function iter.back(t) return t[#t] end
+
 function iter.last(t, n)
     local i = #t-n
     return function()
@@ -65,6 +83,7 @@ function iter.last(t, n)
         return ret
     end
 end
+
 
 function iter.collect(iter)
     local ret = {}
@@ -113,14 +132,77 @@ function iter.str(t, sep)
     return table.concat(iter.map(t, tostring), sep or "")
 end
 
+local function compn(...)
+    local fns = {...}
+    return function(...)
+        local args = {...}
+        for _,f in ipairs(fns) do
+            args = table.pack(f(table.unpack(args)))
+        end
+        return table.unpack(args)
+    end
+end
+
+local function comp(a, b)
+    return function(...)
+        return b(a(...))
+    end
+end
+
+function iter.strmap(t, fn, sep)
+    return table.concat(iter.map(t, comp(fn, tostring)), sep or "")
+end
+
 function iter.push(t, ...)
     for i in iter.each({...}) do
         t[#t+1] = i
     end
 end
 
+function iter.pop(t)
+    return table.remove(t)
+end
+
 function iter.from_back(t, i)
     return #t - (i - 1)
 end
+
+function iter.filter(t, pred)
+    local ret = {}
+    for v in iter.each(t) do
+        if pred(v) then
+            ret[#ret+1] = v
+        end
+    end
+    return ret
+end
+
+function iter.find(t, pred)
+    for v in iter.each(t) do
+        if pred(v) then return v end
+    end
+    return nil
+end
+
+function iter.split(t, on) 
+    local ret = {{}}
+    for v in iter.each(t) do
+        if v == on then 
+            iter.push(ret, {}) 
+        else
+            iter.push(ret[#ret], v)
+        end
+    end
+    return ret
+end
+
+function iter.rep(el, n )
+    local ret = {}
+    for i=1,n do
+        iter.push(ret, el)
+    end
+    return ret
+end
+
 
 return iter

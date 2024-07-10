@@ -110,6 +110,7 @@ function Op:new(op, a, b)
     self.a = a
     self.b = b
 end
+
 function Op:__tostring()
     return "Op("..s(self.op).." "..s(self.a).." "..s(self.b)..")"
 end
@@ -330,6 +331,17 @@ function DoRangeStep:__tostring()
     )
 end
 
+DoWhile = Ast:extend()
+
+function DoWhile:new(cond, body)
+    self.cond = cond
+    self.body = body
+end
+
+function DoWhile:__tostring()
+    return string.format("DoWhile(%s %s)", self.cond, self.body)
+end
+
 Iter = Ast:extend()
 
 function Iter:new(word, inputs, loop_vars, body)
@@ -381,13 +393,28 @@ function RequireList:__tostring()
     return string.format("Requires(%s)",
         iter.str(iter.map(self.list, function(l) return l.to.." = "..l.from  end), ", ")
     )
+end
 
+local CondCase=  Ast:extend()
+
+function CondCase:new(cond, body)
+    self.cond = cond
+    self.body = body
+end
+
+
+local Cond = Ast:extend()
+function Cond:new()
+    local clauses = {}
+end
+
+function Cond:add_case(cond, body)
+    iter.push(self.clauses, CondCase(cond, body))
 end
 
 
 function mangle_name(n)
-    n = n:gsub("[?#/\\-%,!]", {
-
+    n = n:gsub("[?#/\\%,!-]", {
         ['!'] = "_bang_",
         [','] = "_comma_",
         ['#'] = "_hash_",
@@ -405,4 +432,5 @@ end
 function handle_escapes(s)
     return s:gsub("\\([tnr])", {t="\t",n="\n",r="\r"})
 end
+
 

@@ -32,19 +32,16 @@ class { Scanner }
 ; 
 
 : Scanner.rest ( # -- iter ) it { me } 
-    : ( -- el ) me [ idx>> Scanner.len <= if Scanner.at Scanner.go_next else nil then ]. ;  ;
+: ( -- el ) me [ idx>> Scanner.len <= if Scanner.at Scanner.go_next else nil then ]. ;  ;
 
 : any_of ( ... -- pred ) ... { options } 
-    options ipairs[*\**] { i v } options i v matcher put for
+    options ipairs[*\**] matcher { idx mval } options idx mval put for
     : { el -- ? } false { found } 
         options each { p } el p(*\*) or= found for found ; ;
 
 : balanced { up down -- pred } up matcher down matcher 1 { is_up is_down depth }
-    : ( el -- ? ) [
-         is_down(#\*) if 1 += depth then
-         is_up(#\*)   if 1 -= depth then
-         is_up(#\*) ]. depth 0 eq? and  ; ;
-
-    
-
+: ( el -- ? ) [
+ is_down(#\*) if 1 += depth then
+ is_up(#\*)   if 1 -= depth then
+ is_up(#\*) ]. depth 0 eq? and  ; ;
 

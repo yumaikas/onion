@@ -26,7 +26,7 @@ end
 
 function Env:get(key)
 	local val = self.kv[key] 
-	if val then return val end
+	if val then return val, self.parent == nil end
 	if not val and self.parent then
 		return self.parent:get(key)
 	end

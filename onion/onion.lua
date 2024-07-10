@@ -118,6 +118,25 @@ function parse_require(tok_seq)
     return reqs
 end
 
+function parse_cond_body(tok_seq)
+    local clauses = {}
+
+    for t in iter.each(tok_seq) do
+        if t == "when" then 
+            iter.push(clauses, {}) 
+        else
+            iter.push(clauses[#clauses], t)
+        end
+    end
+    for c in iter.each(clauses) do
+        assert(iter.last(c) == "then", "Cond clauses need to end with 'then'")
+        assert(iter.find(c, "of"),  "Cond clauses need at least one 'of'")
+        iter.pop(c)
+    end
+
+    return clauses
+end
+
 function tests.parse_iter_word()
     local stack = ItStack()
     local nextvar, reset = ssa_counter()
@@ -383,7 +402,6 @@ local function compile(input, output, stacks)
             stacks:push(to_dup)
             stacks:push(to_dup)
             input:tok_next()
-
             add_effect({'x'}, {'x','x'}, "dup")
         elseif tok == "nip" then
             local keep = stacks:pop()
@@ -409,16 +427,12 @@ local function compile(input, output, stacks)
             input:tok_next()
             add_effect({}, {name}, "litname")
         elseif tok == "true" then
-            local var = nextvar()
-            output:compile(Assign(var, Barelit("true"), true))
-            stacks:push(Var(var))
-            add_effect({}, {var}, "true")
+            stacks:push(Barelit("true"))
+            add_effect({}, {"true"}, "true")
             input:tok_next()
         elseif tok == "false" then
-            local var = nextvar()
-            output:compile(Assign(var, Barelit("false"), true))
-            stacks:push(Var(var))
-            add_effect({}, {var}, "false")
+            stacks:push(Barelit(var))
+            add_effect({}, {"false"}, "false")
             input:tok_next()
         elseif tonumber(tok) then
             local var = nextvar()
@@ -475,9 +489,13 @@ local function compile(input, output, stacks)
             end
             iter.reverse(assigns)
             for var in iter.each(assigns) do
-                if not output:envgetlocal(var) then
+                if not output:envget(var) then
                     output:def(var, Var(var))
                     output:compile(Assign(var, stacks:pop(), true))
+                elseif not output:envget(var).var then
+                    -- If this a function instead of a var, we should redefine it
+                    output:def(var, Var(var))
+                    output:compile(Assign(var, stacks:pop()))
                 else
                     output:compile(Assign(var, stacks:pop()))
                 end
@@ -662,6 +680,47 @@ local function compile(input, output, stacks)
             loop_eff:assert_matches_depths(1, 0, "do loop body")
             output:compile(DoRangeStep(from, to, step, cnt_var, loop_code.code))
             input:goto_scan(scan)
+        elseif tok == "do?" then
+            local scan = input:scan_ahead_by(1)
+            local cond = iter.collect(scan:upto("while"))
+            local body = iter.collect(scan:upto(balanced(starts_do_loop, "loop")))
+            local cond_body, cond_eff = compile(CompilerInput(cond), output:derived(), stacks)
+            cond_eff:assert_matches_depths(0, 1, "do?..while loop cond")
+            cond_body:compile(stacks:pop())
+            local loop_body, loop_eff = compile(CompilerInput(body), output:derived(), stacks)
+            loop_eff:assert_matches_depths(0, 0, "do?..while loop body")
+            output:compile(DoWhile(cond_body.code, loop_body.code))
+            input:goto_scan(scan)
+        elseif tok == "cond" then
+            local scan = input:scan_ahead_by(1)
+            local cond_body = iter.collect(scan:upto("end"))
+            local clauses = parse_cond_body(cond_body)
+            local clauseBodies = {}
+            local clause_in = nil
+            local clause_out = nil
+
+            -- error("Cond not yet implemented!")
+            -- TODO: 
+            local clause_stack_1 = stacks:copy()
+            local clause_barrier = clause_stack_1:barrier()
+
+            for c in iter.each(clauses) do
+                local arms = iter.split(c, "of")
+                assert(#arms == 2, "Each clause should only have one 'of' token")
+
+                local pred_body, pred_eff = compile(CompilerInput(arms[1]), output:derived(), stacks)
+                pred_eff:assert_matches_depths(0, 1, "cond clause predicate arm")
+                pred_body:compile(stacks:pop())
+                local barrier= clause_stack:barrier(nextvar)
+                if clause_in and clause_out then
+                    local clause_body, clause_eff = compile(CompilerInput(arms[2]), output:derived(), stacks:copy())
+                    clause_eff:assert_matches_depths(clause_in, clause_out, "cond clause body arm")
+                else
+                    local clause_body, clause_eff = compile(CompilerInput(arms[2]), output:derived(), clause_stack_1)
+                    clause_in = #clause_eff.in_eff
+                    clause_out = #clause_eff.out_eff
+                end
+            end
         elseif tok == "each" then
             local table_to_each = stacks:pop() 
             add_effect({'to-iter'}, {}, "each-table")
@@ -720,6 +779,12 @@ local function emit(ast, output)
         end
     elseif instanceof(ast, Whitespace) then
         output:push(ast.ws)
+    elseif instanceof(ast, DoWhile) then
+        output:push(" while ")
+        emit(ast.cond, output)
+        output:push(" do ")
+        emit(ast.body, output)
+        output:push(" end ")
     elseif instanceof(ast, Each) then
         output:push(" for _, " .. ast.itervar.var .. " in ipairs(")
         emit(ast.input, output)
