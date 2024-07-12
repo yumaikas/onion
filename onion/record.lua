@@ -24,7 +24,7 @@ end
 function me:__tostring()
     return "]]..name..[[("..string.format("]] 
         .. iter.strmap(fields, fmt(' %s = %%s ', ", "))  
-        ..  [[", ]]..iter.strmap(fields, fmt("self.%s"), ", ") ..[[)..")"
+        ..  [[", ]]..iter.strmap(fields, fmt("tostring(self.%s)"), ", ") ..[[)..")"
 end
 ]]
 

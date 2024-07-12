@@ -1,6 +1,7 @@
-package.path = "./onion/?.lua;"..package.path
-local onion = require ("onion")
+-- package.path = "./onion/?.lua;"..package.path
+local onion = require ("onion.scratch")
 
+--[[
 function repl() 
     local _repl = onion.repl_session()
     while _repl.should_continue() do
@@ -14,8 +15,10 @@ function repl()
         end
     end
 end
+]]
 
 function main()
+    print(io)
 
     local argIdx = 1
     while argIdx <= #arg do
@@ -50,7 +53,7 @@ function main()
             argIdx = argIdx + 2
             print() print()
         elseif arg[argIdx] == "--repl" then
-            repl()
+            -- repl()
         else
             error("Unrecognized arg: " .. arg[argIdx])
         end

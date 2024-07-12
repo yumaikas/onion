@@ -1,3 +1,4 @@
+local f = require("iter").f
 local record = require("record")
 local Object = require("classic")
 
@@ -13,22 +14,30 @@ function rec(name, ...)
     return cls
 end
 
-function io(i, o)
+function ino(i, o)
     last.num_in = i
     last.num_out = o
 end
 
+
+claw.namelist = Object:extend()
+claw.namelist.new = f'(s, from) s._items = from'
+claw.namelist.__push = f'(s, item) iter.push(s._items, item)'
+claw.namelist.__tostring = f[[(s) -> "n:{ "..iter.strmap(s._items, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
+
+
 rec("ifelse", "when_true", "when_false") 
 rec("if_", "when_true")
-rec("whitespace", "whitespace") io(0,0)
+rec("whitespace", "whitespace") ino(0,0)
 rec("assign_many", "varnames") 
+claw.assign_many.__tostring = f[[(s) -> "::{ "..iter.strmap(s.varnames, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
 rec("func", "name", "inputs", "outputs", "body")
 rec("iter", "word", "inputs", "loop_vars", "body")
 rec("do_loop", "body")
 rec("do_step_loop", "body")
 rec("do_while_loop", "cond", "body")
 rec("cond", "clauses")
-rec("cond_clause", "pred", "when_true")
+rec("cond_clause", "pred", "body")
 rec("each_loop", "body")
 
 
@@ -36,7 +45,14 @@ function claw.iter:init()
     self.inputs = self.inputs or {}
     self.loop_vars = self.loop_vars or {}
 end
+
+claw.body = Object:extend()
+claw.body.new = f'(s) s._items = {}'
+claw.body.compile = f'(s, item) iter.push(s._items, item)' 
+claw.body.__tostring = f'(s) -> "{{ "..iter.str(s._items, " ").." }}" '
+
 rec("unresolved", "tok") 
+claw.unresolved.__tostring = f'(s) -> "%["..s.tok.."]"'
 
 claw.anon_fn = {}
 

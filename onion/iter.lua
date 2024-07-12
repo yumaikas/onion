@@ -12,8 +12,12 @@ function iter.t()
     return Table()
 end
 
+function iter.w(items)
+    return iter.collect(items:gmatch("%S+"))
+end
+
 function iter.f(code)
-    local lua = ("-> @ "..code.." ;")
+    local lua = ("let iter = require('iter') -> @ "..code.." ;")
     :gsub("->", "return")
     :gsub("let", "local")
     :gsub("@", "function")

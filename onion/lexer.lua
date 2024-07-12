@@ -2,11 +2,30 @@ local iter = require("iter")
 local f = iter.f
 local record = require("record")
 local Object = require("classic")
+local pp = require("pprint")
 
-local lexer = {}
-lexer.EOF = {}
 
-function lexer.lex(input)
+local Lex = record("lex", Object, "input")
+function Lex:init()
+    self.idx = 1
+    self._toks = lex(self.input)
+    self.input = nil
+end
+
+function Lex:__tostring1()
+    pp(self)
+    return nil
+end
+function Lex:__tostring()
+    return string.format("lex(idx = %d, toks=%s)", 
+    self.idx, 
+        iter.strmap(self._toks, f'(s) -> "["..tostring(s).."]"', " "))
+end
+
+Lex.EOF = Object:extend()
+function Lex.EOF:__tostring() return "EOF" end
+
+function lex(input)
     input = input.." "
     local pos = 0
     local tokens = {}
@@ -44,16 +63,11 @@ function lexer.lex(input)
             iter.push(tokens, spacing)
         end
     end
-    iter.push(tokens, lexer.EOF)
+    iter.push(tokens, Lex.EOF)
 
     return tokens
 end
 -- 928cd7a4753edc
-local Lex = record("lex", Object, "input")
-function Lex.init()
-    self.idx = 0
-    self._toks = lexer.lex(self.input)
-end
 
 local function matcher(of)
     function any_of(options)
