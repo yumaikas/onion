@@ -12,9 +12,7 @@ function iter.t()
     return Table()
 end
 
-function iter.w(items)
-    return iter.collect(items:gmatch("%S+"))
-end
+function iter.w(items) return iter.collect(items:gmatch("%S+")) end
 
 function iter.f(code)
     local lua = ("let iter = require('iter') -> @ "..code.." ;")
@@ -25,14 +23,17 @@ function iter.f(code)
     :gsub("([%w%.]+)([+-/%*])=([%w%.]+)", "%1 = %1 %2 %3")
     :gsub("([%w%.]+):|([%w%.]+)", "%1 = %1 or %2")
     :gsub("([%w%.]+):&([%w%.]+)", "%1 = %1 and %2")
-    :gsub("each%(([^)]+)%)", "for i,v in ipairs(%1) do ")
 
     local val, msg = load(lua)
     if not val then print(lua) end
     return assert(val, msg)()
 end
 
+function iter.getter(prop) return iter.f("(s) -> s."..prop) end
+
 function iter.each(t)
+    if t.__each then return t:__each() end
+
     local i = 1
     return function()
         local ret = t[i]

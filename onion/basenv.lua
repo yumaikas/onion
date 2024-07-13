@@ -1,42 +1,44 @@
-local Env, Atom = require("resolve")
+local resolve = require("resolve")
+local Env, Atom, atoms = resolve.Env, resolve.Atom, resolve.atoms
+
 local record = require("record")
 local iter = require("iter")
 local claw = require("claw")
 local Object = require("classic")
-local f, w = iter.f, iter.w
+local f, w, getter = iter.f, iter.w, iter.getter
 
-local Expr = Object:extend()
-local BinOp = Expr:extend()
-BinOp.new = f'(s,op) s.op=op'
-local op = function(op) return BinOp(op) end
-local AssignOp = Expr:extend()
-AssignOp.new = f'(s, op) s.op=op'
-
-local Shuffle = Expr:extend()
-Shuffle.new = f'(s, ins, outs) s.ins=ins s.outs=outs'
+local molecules = require("molecules")
 
 local function makeBaseEnv() 
     local baseEnv = Env()
 
-    local ops = [[(+ +) (- -) (* *) (> >) (< <) (mod %) 
-        (eq? ==) (neq? ~=) ]]
+    local ops = [[(+ +)(- -)(* *)(> >)(< <)(mod %)(eq? ==)(neq? ~=)]]
     for k, v in ops:gmatch("%((%S+) (%S+)%)")  do
-        baseEnv:put(k, op(v))
+        baseEnv:put(k, molecules.binop(v))
     end
     local assign_ops = [[(+= +)(-= -)(or= or)(and= and)(*= *)(div= /)(..= ..)]]
     for k, v in assign_ops:gmatch("%((%S+) (%S+)%)")  do
-        baseEnv:put(k, AssignOp(v))
+        baseEnv:put(k, molecules.assign_op(v))
     end
 
-    baseEnv:put("dup", Shuffle(w'a', w'a a'))
-    baseEnv:put("swap", Shuffle(w'a b', w'b a'))
-    baseEnv:put("nip", Shuffle(w'a b', w'b'))
-    baseEnv:put("drop", Shuffle(w'a', w''))
-
+    baseEnv:put("dup", molecules.shuffle('dup', w'a', w'a a'))
+    baseEnv:put("swap", molecules.shuffle('swap', w'a b', w'b a'))
+    baseEnv:put("nip", molecules.shuffle('nip', w'a b', w'b'))
+    baseEnv:put("drop", molecules.shuffle('drop', w'a', w''))
+    baseEnv:put("true", atoms.bool(true))
+    baseEnv:put("false", atoms.bool(false))
+    baseEnv:put("table", molecules.table_lit())
+    baseEnv:put("get", molecules.get())
+    baseEnv:put("put", molecules.put())
+    baseEnv:put("len", molecules.len())
+    baseEnv:put("t[", molecules.new_table_it())
+    baseEnv:put("[", molecules.push_it())
+    baseEnv:put("]", molecules.pop_it())
+    baseEnv:put("].", molecules.drop_it())
+    baseEnv:put("it", molecules.push_it())
 
     return baseEnv
 end
-
 
 
 return makeBaseEnv

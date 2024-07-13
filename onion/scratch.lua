@@ -115,7 +115,6 @@ local parse =  {}
 
 function parse.cond_body(t)
    local clauses = claw.body() 
-   local body = claw.body()
 
    while t:tok() do
         if t:matches("[\r\n]") then
@@ -127,8 +126,7 @@ function parse.cond_body(t)
         clauses:compile(claw.cond_clause(pred_body, when_true_body))
         if t:is("end") then
             t:next()
-            body:compile(claw.cond(clauses))
-            return body
+            return claw.cond(clauses)
         end
    end
    error("Expected an 'end' token")
@@ -186,16 +184,19 @@ function parse.of_chunk(t, end_, end_name)
         elseif t:is("do") then
             t:next()
             local loop_body = parse.of_chunk(t, "loop", "do loop")
+            t:next()
             body:compile(claw.do_loop(loop_body))
         elseif t:is("+do") then
             t:next()
             local loop_body = parse.of_chunk(t, "loop", "+do loop")
+            t:next()
             body:compile(claw.do_step_loop(loop_body))
         elseif t:is("do?") then
             t:next()
             local loop_pred = parse.of_chunk(t, "while", "while")
             t:next()
             local loop_body = parse.of_chunk(t, "loop", "do? loop")
+            t:next()
             body:compile(claw.do_while_loop(loop_pred, loop_body))
         elseif t:is("each") then
             t:next()

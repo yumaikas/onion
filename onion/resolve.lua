@@ -1,5 +1,6 @@
 local iter = require("iter")
 local record = require("record")
+local molecules = require("molecules")
 local Object = require("classic")
 local f = iter.f
 local claw = require("claw")
@@ -8,12 +9,17 @@ local Atom = Object:extend()
 Atom.__tostring = f'() -> "Atom"'
 local atoms = {}
 
+
+local record = require("record")
+local Object = require("classic")
 local function atom(name, ...) atoms[name] = record(name, Object, ...) end
 
 atom("var", "name")
 atom("number", "val")
 atom("string", "val")
+atom("bool", "val")
 atom("call", "name", "num_inputs", "num_outputs")
+atom("propget", "prop")
 atom("whitespace", "ws")
 
 
@@ -37,9 +43,9 @@ end
 function Env:put(key, value) self.kv[key] = value end
 
 local call_eff = {}
-function call_eff.is(word) return word:find("([^%(]*)%(%**\\?%**%)$") ~= nil end
+function call_eff.is(word) return word:find("([^%(]*)%(#?%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
-    local _,_, called, ins, outs = word:find("([%(]*)%((%**)\\?(%**)%)$")
+    local _,_, called, ins, outs = word:find("([%(]*)%((#?%**)\\?(%**)%)$")
 
     if ins then
         return called, #ins, #(outs or {})
@@ -50,21 +56,31 @@ end
 
 function claw.body:resolve(env)
     for idx, node in ipairs(self._items) do
+        function map(to) self._items[idx] = to end
         if instanceof(node, claw.unresolved) then
             if tonumber(node.tok) then
-                self._items[idx] = atoms.number(tonumber(node.tok))
+                map(atoms.number(tonumber(node.tok)))
             elseif node.tok:find('^"') and node.tok:find('"$') then
-                self._items[idx] = atoms.string(node.tok:sub(2,-2))
+                map(atoms.string(node.tok:sub(2,-2)))
             elseif env:get(node.tok) then
-                self._items[idx] = env:get(node.tok)
+                map(env:get(node.tok))
             elseif call_eff.is(node.tok) then
-                self._items[idx] = atoms.call(call_eff.parse(node.tok))
+                map(atoms.call(call_eff.parse(node.tok)))
+            elseif node.tok:match("^%.") then
+                map(molecules.propget(node.tok))
+            elseif node.tok:match("^>>") then
+                map(molecules.prop_set_it(node.tok))
+            elseif node.tok:match("^>") then
+                map(molecules.propset(node.tok))
+            elseif node.tok:match(">>$") then
+                map(molecules.prop_get_it(node.tok))
             elseif node.tok:match('[\r\n]') then
                 self._items[idx] = atoms.whitespace(node.tok)
             else
                 error("Unable to resolve token: ["..node.tok.."]")
             end
         else
+            print("RESOLVING: "..tostring(node))
             node:resolve(env)
         end
     end
@@ -103,8 +119,10 @@ function claw.cond_clause:resolve(env)
 end
 
 function claw.cond:resolve(env)
-    for c in iter.each(env) do c:resolve(env) end
+    for c in iter.each(self.clauses) do 
+        c:resolve(env)
+    end
 end
 
 
-return Env, Atom, atoms
+return { Env=Env, Atom=Atom, atoms=atoms}

@@ -49,12 +49,15 @@ end
 claw.body = Object:extend()
 claw.body.new = f'(s) s._items = {}'
 claw.body.compile = f'(s, item) iter.push(s._items, item)' 
-claw.body.__tostring = f'(s) -> "{{ "..iter.str(s._items, " ").." }}" '
+claw.body.__tostring = f'(s) -> "{{ "..iter.str(s._items, " ").." }}"'
+claw.body.__each = f'(s) -> iter.each(s._items)'
 
 rec("unresolved", "tok") 
 claw.unresolved.__tostring = f'(s) -> "%["..s.tok.."]"'
 
-claw.anon_fn = {}
+local anon = Object:extend()
+anon.__tostring = f'(s) -> "anon-fn"'
+claw.anon_fn = anon()
 
 return claw
 
