@@ -62,9 +62,11 @@ function chunk(t, end_match, end_name)
 end
 
 local call_eff = {}
-function call_eff.is(word) return word:find("([^%(]*)%(%**\\?%**%)$") ~= nil end
+function call_eff.is(word) return word:find("([^(]+)%(%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
-    local _,_, called, ins, outs = word:find("([%(]*)%((%**)\\?(%**)%)$")
+    local _,_, called, ins, outs = word:find("([^(]+)%((%**)\\?(%**)%)$")
+
+    print("CALL_EFF_PARSE", word, word:find("([^(]+)%((%**)\\?(%**)%)$"))
 
     if ins then
         return called, #ins, #(outs or {})

@@ -9,8 +9,6 @@ local claw = require("claw")
 local atoms = require("atoms")
 
 
-
-
 local Env = Object:extend()
 
 function Env:new(parent)
@@ -31,9 +29,9 @@ end
 function Env:put(key, value) self.kv[key] = value end
 
 local call_eff = {}
-function call_eff.is(word) return word:find("([^%(]*)%(#?%**\\?%**%)$") ~= nil end
+function call_eff.is(word) return word:find("([^(]*)%(#?%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
-    local _,_, called, ins, outs = word:find("([%(]*)%((#?%**)\\?(%**)%)$")
+    local _,_, called, ins, outs = word:find("([^(]*)%((#?%**)\\?(%**)%)$")
     pp{called,ins,outs}
     -- TODO: Handle "it" more properly
     if ins then
@@ -61,6 +59,7 @@ function claw.body:resolve(env)
                     ins,
                     outs
                 ))
+                print("CALL_RESOLVE", self._items[idx].eff)
             elseif node.tok:match("^%.") then
                 map(molecules.propget(node.tok))
             elseif node.tok:match("^>>") then
@@ -77,6 +76,7 @@ function claw.body:resolve(env)
         else
             print("RESOLVING: "..tostring(node))
             node:resolve(env)
+            print("RESOLVED: "..tostring(node))
         end
     end
 end

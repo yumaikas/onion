@@ -19,8 +19,6 @@ atom("var", "name") e(0, 1)
 atom("number", "val") e(0,1)
 atom("string", "val") e(0,1)
 atom("bool", "val") e(0,1)
-atom("call", "name", "num_inputs", "num_outputs")
-function atoms.call:init() self.eff = e(self.num_inputs, self.num_outputs) end
 atom("whitespace", "ws") e(0,0)
 
 return atoms

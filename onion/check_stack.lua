@@ -28,7 +28,7 @@ function claw.body:stack_infer()
             error("Unable to infer stack effect of "..tostring(c))
         end
     end
-    self.eff = total_eff
+    self.eff = total_body_eff
     return self.eff
 end
 
@@ -58,7 +58,7 @@ function claw.func:stack_infer()
     local body_eff = self.body:stack_infer()
     pp(self.body)
     print(tostring(self.body))
-    body_eff:assert_matches_depths(#self.inputs, #self.outputs)
+    body_eff:assert_matches_depths(#self.inputs, #self.outputs, self.name)
     -- External eff 
     if self.name == claw.anon_fn then
         self.eff = Effect({}, {'fn'})
