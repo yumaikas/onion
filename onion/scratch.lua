@@ -7,7 +7,6 @@ package.path = "./onion/?.lua;"..package.path
 -- stitch(ast+(blocks & exprs))
 -- ssa allocate (ast + (blocks & exprs))
 
-
 -- local lexer = require("lex")
 local Lex = require("lexer")
 local Env = require("resolve")
@@ -15,6 +14,7 @@ local BaseEnv = require("basenv")
 local claw = require("claw") 
 local iter = require("iter")
 local f = iter.f
+require("check_stack")
 local tests = require("tests")
 local pp = require("pprint")
 local onion = {}
@@ -108,7 +108,7 @@ function iter_eff.parse(word)
     end
     local patt = "([^[]*)%[(#?%**)\\([*_]*)%]$"
     local _, _, word, inputs, loop_vars = word:find(patt)
-    return word, inputs, loop_vars
+    return word, iter.chars(inputs), iter.chars(loop_vars)
 end
 
 local parse =  {}
@@ -236,10 +236,9 @@ function onion.compile(code)
     local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
     local env = BaseEnv()
     ast:resolve(env)
+    ast:stack_infer()
 
-    for i in iter.each(ast._items) do
-        print(i)
-    end
+    -- for i in iter.each(ast._items) do print(i) end
 
 end
 

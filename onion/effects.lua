@@ -11,7 +11,7 @@ local function mouse_notation(i,o)
 end
 
 function Effect:new(in_eff, out_eff)
-    self.in_eff   = in_eff
+    self.in_eff  = in_eff
     self.out_eff = out_eff
 end
 

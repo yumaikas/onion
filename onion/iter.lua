@@ -89,6 +89,10 @@ function iter.last(t, n)
     end
 end
 
+function iter.chars(str)
+    return iter.collect(str:gmatch("."))
+end
+
 
 function iter.collect(iter)
     local ret = {}
@@ -201,7 +205,7 @@ function iter.split(t, on)
     return ret
 end
 
-function iter.rep(el, n )
+function iter.rep(el, n)
     local ret = {}
     for i=1,n do
         iter.push(ret, el)

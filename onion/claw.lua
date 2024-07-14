@@ -14,11 +14,6 @@ function rec(name, ...)
     return cls
 end
 
-function ino(i, o)
-    last.num_in = i
-    last.num_out = o
-end
-
 
 claw.namelist = Object:extend()
 claw.namelist.new = f'(s, from) s._items = from'
@@ -28,7 +23,7 @@ claw.namelist.__tostring = f[[(s) -> "n:{ "..iter.strmap(s._items, @(i) -> "\'".
 
 rec("ifelse", "when_true", "when_false") 
 rec("if_", "when_true")
-rec("whitespace", "whitespace") ino(0,0)
+rec("whitespace", "whitespace")
 rec("assign_many", "varnames") 
 claw.assign_many.__tostring = f[[(s) -> "::{ "..iter.strmap(s.varnames, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
 rec("func", "name", "inputs", "outputs", "body")

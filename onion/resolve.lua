@@ -1,26 +1,14 @@
 local iter = require("iter")
 local record = require("record")
+local eff=require("eff")
+local pp = require("pprint")
 local molecules = require("molecules")
 local Object = require("classic")
-local f = iter.f
+local f, w = iter.f, iter.w
 local claw = require("claw")
-
-local Atom = Object:extend()
-Atom.__tostring = f'() -> "Atom"'
-local atoms = {}
+local atoms = require("atoms")
 
 
-local record = require("record")
-local Object = require("classic")
-local function atom(name, ...) atoms[name] = record(name, Object, ...) end
-
-atom("var", "name")
-atom("number", "val")
-atom("string", "val")
-atom("bool", "val")
-atom("call", "name", "num_inputs", "num_outputs")
-atom("propget", "prop")
-atom("whitespace", "ws")
 
 
 local Env = Object:extend()
@@ -46,9 +34,10 @@ local call_eff = {}
 function call_eff.is(word) return word:find("([^%(]*)%(#?%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
     local _,_, called, ins, outs = word:find("([%(]*)%((#?%**)\\?(%**)%)$")
-
+    pp{called,ins,outs}
+    -- TODO: Handle "it" more properly
     if ins then
-        return called, #ins, #(outs or {})
+        return called, iter.chars(ins), iter.chars(outs or "") 
     else
         return nil
     end
@@ -65,7 +54,13 @@ function claw.body:resolve(env)
             elseif env:get(node.tok) then
                 map(env:get(node.tok))
             elseif call_eff.is(node.tok) then
-                map(atoms.call(call_eff.parse(node.tok)))
+                local word, ins, outs = call_eff.parse(node.tok)
+                map(molecules.call(
+                    word,
+                    iter.has_value(ins, "#"),
+                    ins,
+                    outs
+                ))
             elseif node.tok:match("^%.") then
                 map(molecules.propget(node.tok))
             elseif node.tok:match("^>>") then
@@ -103,6 +98,7 @@ function claw.func:resolve(env)
     local fenv = Env(env)
     if instanceof(self.inputs, claw.assign_many) then self.inputs:resolve(fenv) end
     self.body:resolve(fenv)
+    self.env = fenv
 end
 
 local body_res = f'(s, env) s.body:resolve(env)'
