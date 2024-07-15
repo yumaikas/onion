@@ -18,8 +18,9 @@ end
 claw.namelist = Object:extend()
 claw.namelist.new = f'(s, from) s._items = from'
 claw.namelist.__push = f'(s, item) iter.push(s._items, item)'
+claw.namelist.__len = f'(s) -> #s._items'
 claw.namelist.__tostring = f[[(s) -> "n:{ "..iter.strmap(s._items, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
-
+claw.namelist.__each = f'(s) -> iter.each(s._items)'
 
 rec("ifelse", "when_true", "when_false") 
 rec("if_", "when_true")

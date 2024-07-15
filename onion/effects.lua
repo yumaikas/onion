@@ -23,10 +23,10 @@ function Effect:add_out(name)
 	table.insert(self.out_eff, name)
 end
 
-function Effect:assert_match(other)
+function Effect:assert_match(other, fn)
 	if #self.in_eff == #other.in_eff and #self.out_eff == #other.out_eff then
 	else
-		error(string.format("Stack Effect Mismatch %s %s", self, other))
+		error(string.format("Stack Effect Mismatch in %s! got %s expected %s", fn, self, other))
 	end
 end
 

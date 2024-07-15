@@ -50,15 +50,39 @@ function claw.body:resolve(env)
             elseif node.tok:find('^"') and node.tok:find('"$') then
                 map(atoms.string(node.tok:sub(2,-2)))
             elseif env:get(node.tok) then
-                map(env:get(node.tok))
+                local val = env:get(node.tok)
+                if instanceof(val, atoms.assign_op) then
+                    assert(instanceof(self._items[idx+1], claw.unresolved))
+                    map(molecules.assign_op(val.op, self._items[idx+1].tok))
+                    table.remove(self._items, idx+1)
+                elseif instanceof(val, claw.func) then
+                    map(molecules.call(
+                        val.name, 
+                        iter.has_value(val.inputs, '#'),
+                        val.inputs, 
+                        val.outputs
+                    ))
+                else
+                    map(env:get(node.tok))
+                end
+
             elseif call_eff.is(node.tok) then
                 local word, ins, outs = call_eff.parse(node.tok)
-                map(molecules.call(
-                    word,
-                    iter.has_value(ins, "#"),
-                    ins,
-                    outs
-                ))
+                if word:find("^:") then
+                    map(molecules.mcall(
+                        word:sub(2),
+                        iter.has_value(ins, "#"),
+                        ins,
+                        outs
+                    ))
+                else
+                    map(molecules.call(
+                        word,
+                        iter.has_value(ins, "#"),
+                        ins,
+                        outs
+                    ))
+                end
                 print("CALL_RESOLVE", self._items[idx].eff)
             elseif node.tok:match("^%.") then
                 map(molecules.propget(node.tok))
@@ -106,7 +130,7 @@ local body_res = f'(s, env) s.body:resolve(env)'
 claw.iter.resolve = body_res
 claw.do_loop.resolve = body_res
 claw.do_step_loop.resolve = body_res
-claw.do_while_loop.resolve = body_res
+claw.do_while_loop.resolve = f'(s, env) s.cond:resolve(env) s.body:resolve(env)'
 claw.each_loop.resolve = body_res
 
 function claw.cond_clause:resolve(env)

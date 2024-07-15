@@ -20,5 +20,6 @@ atom("number", "val") e(0,1)
 atom("string", "val") e(0,1)
 atom("bool", "val") e(0,1)
 atom("whitespace", "ws") e(0,0)
+atom("assign_op", "op") e(1,1)
 
 return atoms

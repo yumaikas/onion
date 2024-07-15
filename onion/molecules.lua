@@ -28,7 +28,8 @@ function mol(name, new, tostr)
 end
 
 mol('binop', '(s,op) s.op=op', '(s) -> "binop("..s.op..")"') e(2, 1)
-mol('assign_op', '(s,op) s.op=op', '(s) -> "op=("..s.op..")"') e(1,1)
+mol('assign_op', '(s,op,var) s.op=op s.var=var', 
+'(s) -> "a_op("..s.op.."= "..s.var..")"') e(1,0)
 mol('table_lit', '()', '(s) -> "table"') e(0, 1)
 mol('shuffle', '(s, name, ins, outs) s.name=name s.ins=ins s.outs=outs s:init()', getter'name') 
 function molecules.shuffle:init()
@@ -36,7 +37,7 @@ function molecules.shuffle:init()
 end
 
 mol('propget', '(s, prop) s.prop=prop', '(s) -> "pget("..s.prop..")"')  e(1,1)
-mol('propset', '(s, prop) s.prop=prop', '(s) -> "pset("..s.prop..")"') e(1, 1)
+mol('propset', '(s, prop) s.prop=prop', '(s) -> "pset("..s.prop..")"') e(2, 0)
 mol('prop_set_it', '(s, prop) s.prop=prop', '(s) -> "pset_it("..s.prop..")"') e(1, 0)
 mol('prop_get_it', '(s, prop) s.prop=prop', '(s) -> "pget_it("..s.prop..")"') e(0, 1)
 mol('get', '()', '(s) -> "get"') e(2, 1)
@@ -58,13 +59,39 @@ s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()
             iter.str(s.outputs))
     end]])
 
-function molecules.call:init() self.eff = eff(self.inputs, self.outputs) end
+function molecules.call:init() 
+    local ins = iter.filter(self.inputs, f'(i) -> i ~= "it" and i ~= "#"')
+    pp{"DERPY", self.name, ins}
+    self.eff = eff(ins, iter.copy(self.outputs))
+end
+
+mol('mcall', [[(s, name, has_it, inputs, outputs)
+s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()
+]], [[(s)
+    if s.has_it then
+        -> string.format("mcall[%s](it+%s\\%s)", 
+            s.name, 
+            iter.str(s.inputs),
+            iter.str(s.outputs))
+    else
+        -> string.format("mcall[%s](%s\\%s)", 
+            s.name, 
+            iter.str(s.inputs),
+            iter.str(s.outputs))
+    end]])
+
+function molecules.mcall:init() 
+    local ins = iter.filter(self.inputs, f'(i) -> i ~= "it" and i ~= "#"')
+    pp{"DERPY", self.name, ins}
+    table.insert(ins, 1, 'obj')
+    self.eff = eff(ins, iter.copy(self.outputs))
+end
 
 function mol_str(name, str) mol(name, '()', '() -> "'..str..'"') end
 mol_str('new_table_it', 'new-table-it') e(0, 0)
 mol_str('push_it', 'push-it') e(1, 0)
 mol_str('pop_it', 'pop-it') e(0, 1)
-mol_str('drop_it', 'drop-it') e(0,1)
+mol_str('drop_it', 'drop-it') e(0,0)
 mol_str('ref_it', 'ref-it') e(0, 1)
 
 return molecules

@@ -76,11 +76,11 @@ function call_eff.parse(word)
 end
 
 local short_eff = {}
-function short_eff.is(word) return word:find("^%(%**\\?%**%)$") ~= nil end
+function short_eff.is(word) return word:find("^%(#?%**\\?%**%)$") ~= nil end
 function short_eff.parse(word) 
-    local _,_,ins, outs = word:find("^%((%**)\\?(%**)%)$")
+    local _,_,ins, outs = word:find("^%((#?%**)\\?(%**)%)$")
     if ins then
-        return #ins, #(outs or {})
+        return ins, outs
     else
         return nil, "unable to parse short-effect: "..word
     end
@@ -175,8 +175,8 @@ function parse.of_chunk(t, end_, end_name)
             elseif t:can(short_eff.is) then
                 local i, o = assert(short_eff.parse(t:tok()))
                 t:next()
-                inputs = iter.rep("*", i)
-                outputs = iter.rep("*", o)
+                inputs = claw.namelist(iter.chars(i))
+                outputs = claw.namelist(iter.chars(o))
             else
                 error("Word def should have stack effect!")
             end
