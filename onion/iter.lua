@@ -168,6 +168,10 @@ function iter.push(t, ...)
     end
 end
 
+function iter.shift(t, val)
+    table.insert(t, 1, val)
+end
+
 function iter.pop(t)
     return table.remove(t)
 end

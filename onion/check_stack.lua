@@ -119,7 +119,6 @@ function claw.do_while_loop:stack_infer()
 end
 
 function claw.cond:stack_infer()
-    pp("COND STACK INFER")
     local total_eff = Effect({},{})
     local bi, bo
     for i in iter.each(self.clauses) do

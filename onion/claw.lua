@@ -22,12 +22,12 @@ claw.namelist.__len = f'(s) -> #s._items'
 claw.namelist.__tostring = f[[(s) -> "n:{ "..iter.strmap(s._items, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
 claw.namelist.__each = f'(s) -> iter.each(s._items)'
 
-rec("ifelse", "when_true", "when_false") 
-rec("if_", "when_true")
-rec("whitespace", "whitespace")
-rec("assign_many", "varnames") 
+rec("ifelse", "when_true", "when_false")  --
+rec("if_", "when_true") --
+rec("whitespace", "whitespace") --
+rec("assign_many", "varnames")  --
 claw.assign_many.__tostring = f[[(s) -> "::{ "..iter.strmap(s.varnames, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
-rec("func", "name", "inputs", "outputs", "body")
+rec("func", "name", "inputs", "outputs", "body") --
 rec("iter", "word", "inputs", "loop_vars", "body")
 rec("do_loop", "body")
 rec("do_step_loop", "body")

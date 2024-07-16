@@ -17,8 +17,6 @@
 : signc { a -- -1/0/1 } cond a 0 eq? -> 0 of a 0 > -> 1 of true -> -1 of end ;
 
 
- \ 
- \ 
  : counter { init -- fn } 
        : ( -- v ) init 1 + { init } init ; ;
   : updown { init -- obj } 
