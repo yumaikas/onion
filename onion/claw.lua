@@ -20,21 +20,23 @@ claw.namelist.new = f'(s, from) s._items = from'
 claw.namelist.__push = f'(s, item) iter.push(s._items, item)'
 claw.namelist.__len = f'(s) -> #s._items'
 claw.namelist.__tostring = f[[(s) -> "n:{ "..iter.strmap(s._items, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
-claw.namelist.__each = f'(s) -> iter.each(s._items)'
+claw.namelist.items = f'(s) -> s._items'
+claw.namelist.__each = f'(s) -> iter.each(s:items())'
 
 rec("ifelse", "when_true", "when_false")  --
 rec("if_", "when_true") --
 rec("whitespace", "whitespace") --
 rec("assign_many", "varnames")  --
 claw.assign_many.__tostring = f[[(s) -> "::{ "..iter.strmap(s.varnames, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
+
 rec("func", "name", "inputs", "outputs", "body") --
-rec("iter", "word", "inputs", "loop_vars", "body")
-rec("do_loop", "body")
-rec("do_step_loop", "body")
-rec("do_while_loop", "cond", "body")
-rec("cond", "clauses")
-rec("cond_clause", "pred", "body")
-rec("each_loop", "body")
+rec("iter", "word", "inputs", "loop_vars", "body") --
+rec("do_loop", "body") --
+rec("do_step_loop", "body") --
+rec("do_while_loop", "cond", "body") --
+rec("cond", "clauses") --
+rec("cond_clause", "pred", "body") --
+rec("each_loop", "body") --
 
 
 function claw.iter:init()

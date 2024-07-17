@@ -16,10 +16,13 @@ local function atom(name, ...)
 end
 
 atom("var", "name") e(0, 1)
+atoms.var.__tostring = f'(s) -> "$["..tostring(s.name).."]"'
 atom("number", "val") e(0,1)
+atoms.number.__tostring = f'(s) -> "["..tostring(s.val).."]"'
 atom("string", "val") e(0,1)
 atom("bool", "val") e(0,1)
 atom("whitespace", "ws") e(0,0)
+atoms.whitespace.__tostring = f'(s) -> "ws("..s.ws:gsub("[\\r\\n]", {["\\r"] = "\\\\r", ["\\n"] = "\\\\n"})..")"'
 atom("assign_op", "op") e(1,1)
 
 return atoms

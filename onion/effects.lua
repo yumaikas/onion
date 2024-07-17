@@ -1,4 +1,5 @@
-local Object = require "classic"
+local Object = require("classic")
+local iter = require("iter")
 
 local Effect = Object:extend()
 
@@ -53,7 +54,7 @@ function Effect:__concat(other)
         for i=1,#self.in_eff do
             needed[#needed+1] = self.in_eff[i]
         end
-        return Effect(needed, other.out_eff)
+        return Effect(needed, iter.copy(other.out_eff))
     elseif flow > 0 then
         local leaves = {}
         for i=1,math.abs(flow) do
@@ -62,9 +63,9 @@ function Effect:__concat(other)
         for i=1,#other.out_eff do
             leaves[#leaves+1] = other.out_eff[i]
         end
-        return Effect(self.in_eff, leaves)
+        return Effect(iter.copy(self.in_eff), leaves)
     else
-        return Effect(self.in_eff, other.out_eff)
+        return Effect(iter.copy(self.in_eff), iter.copy(other.out_eff))
     end
 end
 

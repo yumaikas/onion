@@ -1,5 +1,6 @@
 local Object = require("classic")
 local iter = {}
+local pp = require("pprint")
 
 local Table = Object:extend()
 
@@ -66,6 +67,20 @@ function iter.reverse(tab)
         tab[i], tab[#tab-i+1] = tab[#tab-i+1], tab[i]
     end
     return tab
+end
+-- from rxi/lume
+local ripairs_iter = function(t, i)
+  i = i - 1
+  local v = t[i]
+  if v ~= nil then
+    return i, v
+  end
+end
+
+-- from rxi/lume
+function iter.ripairs(t)
+  t = iter.copy(t)
+  return ripairs_iter, t, (#t + 1)
 end
 
 function iter.backwards(t)

@@ -1,8 +1,8 @@
 local iter = require("iter")
 local record = require("record")
 local eff=require("eff")
-local pp = require("pprint")
 local molecules = require("molecules")
+local trace = require("trace")
 local Object = require("classic")
 local f, w = iter.f, iter.w
 local claw = require("claw")
@@ -32,11 +32,11 @@ local call_eff = {}
 function call_eff.is(word) return word:find("([^(]*)%(#?%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
     local _,_, called, ins, outs = word:find("([^(]*)%((#?%**)\\?(%**)%)$")
-    pp{called,ins,outs}
-    -- TODO: Handle "it" more properly
+    trace:pp{called,ins,outs}
     if ins then
         return called, iter.chars(ins), iter.chars(outs or "") 
     else
+        trace(self.name)
         return nil
     end
 end
@@ -51,6 +51,9 @@ function claw.body:resolve(env)
                 map(atoms.string(node.tok:sub(2,-2)))
             elseif env:get(node.tok) then
                 local val = env:get(node.tok)
+                if type(val) == "function" then 
+                    val = val() 
+                end
                 if instanceof(val, atoms.assign_op) then
                     assert(instanceof(self._items[idx+1], claw.unresolved))
                     map(molecules.assign_op(val.op, self._items[idx+1].tok))
@@ -63,7 +66,12 @@ function claw.body:resolve(env)
                         val.outputs
                     ))
                 else
-                    map(env:get(node.tok))
+                    local v = env:get(node.tok)
+                    if type(v) == "function" then
+                        map(v())
+                    else
+                        map(v)
+                    end
                 end
 
             elseif call_eff.is(node.tok) then
@@ -83,31 +91,33 @@ function claw.body:resolve(env)
                         outs
                     ))
                 end
-                print("CALL_RESOLVE", self._items[idx].eff)
             elseif node.tok:match("^%.") then
-                map(molecules.propget(node.tok))
+                map(molecules.propget(node.tok:sub(2)))
             elseif node.tok:match("^>>") then
-                map(molecules.prop_set_it(node.tok))
+                map(molecules.prop_set_it(node.tok:sub(3)))
             elseif node.tok:match("^>") then
-                map(molecules.propset(node.tok))
+                map(molecules.propset(node.tok:sub(2)))
             elseif node.tok:match(">>$") then
-                map(molecules.prop_get_it(node.tok))
+                map(molecules.prop_get_it(node.tok:sub(1,-3)))
             elseif node.tok:match('[\r\n]') then
                 self._items[idx] = atoms.whitespace(node.tok)
             else
                 error("Unable to resolve token: ["..node.tok.."]")
             end
         else
-            print("RESOLVING: "..tostring(node))
+            trace("RESOLVING: "..tostring(node))
             node:resolve(env)
-            print("RESOLVED: "..tostring(node))
+            trace("RESOLVED: "..tostring(node))
         end
     end
 end
 
 function claw.whitespace:resolve(env) end
 function claw.assign_many:resolve(env) 
-    for v in iter.each(self.varnames) do
+    self.is_new = {}
+    for i, v in ipairs(self.varnames) do
+        local ev = env:get(v)
+        self.is_new[i] = not env:get(v)
         env:put(v, atoms.var(v))
     end
 end
@@ -118,11 +128,13 @@ function claw.ifelse:resolve(env)
 end
 function claw.if_:resolve(env) self.when_true:resolve(env) end
 function claw.func:resolve(env)
+    trace:push(self.name)
     env:put(self.name, self)
     local fenv = Env(env)
     if instanceof(self.inputs, claw.assign_many) then self.inputs:resolve(fenv) end
     self.body:resolve(fenv)
     self.env = fenv
+    trace:pop()
 end
 
 local body_res = f'(s, env) s.body:resolve(env)'

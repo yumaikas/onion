@@ -8,13 +8,17 @@ package.path = "./onion/?.lua;"..package.path
 -- ssa allocate (ast + (blocks & exprs))
 
 -- local lexer = require("lex")
+local trace = require("trace")
 local Lex = require("lexer")
 local Env = require("resolve")
 local BaseEnv = require("basenv")
+local LuaOutput = require("lunar")
+local seam = require("seam")
 local claw = require("claw") 
 local iter = require("iter")
 local f = iter.f
 require("check_stack")
+require("stitch")
 local tests = require("tests")
 local pp = require("pprint")
 local onion = {}
@@ -233,13 +237,25 @@ function onion.parse(code)
 end
 
 function onion.compile(code)
+    trace:push("TOPLEVEL")
     local toks = Lex(code)
     print(toks)
     local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
     local env = BaseEnv()
     ast:resolve(env)
     ast:stack_infer()
+    local stack = seam.stack()
+    local it_stack = seam.stack()
+    ast:stitch(stack, it_stack)
 
+    for a in iter.each(ast) do
+        trace("AST", a)
+    end
+    local out = LuaOutput()
+    ast:to_lua(out)
+    print(out:str())
+
+    trace:pop()
     -- for i in iter.each(ast._items) do print(i) end
 
 end

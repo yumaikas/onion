@@ -1,0 +1,293 @@
+local claw = require("claw")
+local atoms = require("atoms")
+local molecules = require("molecules")
+local iter = require("iter")
+local Object = require("classic")
+local seam = require("seam")
+
+
+local LuaOutput = Object:extend()
+
+function LuaOutput:new()
+    self.line_padding = 0
+    self.ssa_idx = 1
+    self.out = {}
+end
+
+function LuaOutput:next_ssa()
+    local ret = "_"..self.ssa_idx
+    self.ssa_idx = self.ssa_idx + 1
+    return ret
+end
+
+function LuaOutput:indent(amt)
+    self.line_padding = self.line_padding + amt
+end
+
+function LuaOutput:dedent(atm)
+    self.line_padding = self.line_padding - amt
+end
+
+function LuaOutput:write(...)
+    iter.push(self.out, ...)
+end
+
+function LuaOutput:pop() iter.pop(self.out) end
+
+function LuaOutput:comment(...)
+    self:write("--[[", ...)
+    self:write("]]")
+end
+
+function LuaOutput:echo(val)
+    if val.to_lua then
+        val:to_lua(self)
+    else
+        self:comment(val)
+    end
+end
+
+function LuaOutput:write_list(list, sep)
+    for i in iter.each(list) do
+        self:write(i)
+        self:write(sep)
+    end
+    if #list > 0 then iter.pop(self.out) end
+end
+
+function LuaOutput:nl()
+    iter.push(self.out,"\n", string.rep(" ", self.line_padding))
+end
+
+function LuaOutput:str() return iter.str(self.out) end
+
+function claw.body:to_lua(out)
+    for node in iter.each(self) do 
+        if node.no_out then
+        elseif node.to_lua then
+            node:to_lua(out)
+        else
+            out:comment("Unsupported: ", tostring(node))
+        end
+    end
+end
+
+function mangle_name(n)
+    n = n:gsub("[?#/\\%,!-]", {
+        ['!'] = "_bang_",
+        [','] = "_comma_",
+        ['#'] = "_hash_",
+        ['/'] = "_slash_",
+        ['\\'] = '_backslash_',
+        ['?'] = '_question_',
+        ['-'] = '_'
+    })
+    if n:find("^[^_a-zA-Z]") then
+        n = "__" .. n
+    end
+    return n
+end
+
+function seam.cell:to_lua(out)
+    if self:get().to_lua then
+        self:get():to_lua(out)
+    else
+        out:comment(self:get())
+    end
+end
+
+function seam.lit:to_lua(out)
+    out:write(self.val)
+end
+
+function seam.strlit:to_lua(out) out:write(string.format("%q", self.val)) end
+
+function molecules.push_it:to_lua(out)
+    if self.is_new then
+        out:write(" local ")
+    end
+    out:echo(self.var)
+    out:write(" ")
+end
+
+function molecules.prop_set_it:to_lua(out)
+    out:echo(self.obj)
+    out:write(".", self.prop, " = ")
+    out:echo(self.val)
+end
+
+function molecules.binop:to_lua(out)
+    out:write("(")
+    out:echo(self.a)
+    out:write(" ", self.op, " ")
+    out:echo(self.b)
+    out:write(")")
+end
+
+function molecules.call:to_lua(out)
+    if #self.outputs > 0 then
+        out:write(" local ")
+        for o in iter.each(self.outputs) do
+            out:echo(o)
+            out:write(', ')
+        end
+        out:pop()
+    out:write(" = ")
+    end
+    out:write(mangle_name(self.name))
+    out:write("(")
+    if #self.inputs > 0 then
+        for i in iter.each(self.inputs) do
+            out:echo(i)
+            out:write(", ")
+        end
+        out:pop()
+    end
+    out:write(") ")
+end
+
+function map_it_params(v)
+    if v == "#" then return "it" else return v end 
+end
+
+function params() 
+    local i = 0
+    return function(v) 
+        if v == "#" then 
+            return "it" 
+        else 
+            i = i + 1
+            return "p"..i
+        end 
+    end
+end
+
+function claw.func:to_lua(out)
+    out:write("function ")
+    if self.name ~= claw.anon_fn then
+        out:write(mangle_name(self.name))
+    end
+    out:write("(" ) 
+    if instanceof(self.inputs, claw.namelist) then
+        out:write_list(iter.map(self.inputs, params()), ", ")
+    elseif instanceof(self.inputs, claw.assign_many) then
+        out:write_list(iter.map(self.inputs.varnames, map_it_params), ", ")
+    end
+    out:write(") ")
+    self.body:to_lua(out)
+    if #self.seam_outputs > 0 then
+        out:write(" return ")
+    end
+    if #self.seam_outputs > 0 then
+        for so in iter.each(self.seam_outputs) do
+            if so.to_lua then
+                so:to_lua(out)
+            else
+                out:comment(so)
+            end
+            out:write(", ")
+        end
+        out:pop()
+    end
+    out:write(" end ")
+end
+
+function molecules.propget:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(self.prop)
+end
+
+function molecules.get:to_lua(out)
+    out:echo(self.obj)
+    out:write("[")
+    out:echo(self.key)
+    out:write("]")
+end
+
+function molecules.put:to_lua(out)
+    out:echo(self.obj)
+    out:write("[", self.key, "]")
+    out:write(" = ")
+    out:echo(self.val)
+end
+
+function molecules.table_lit:to_lua(out)
+    out:write("local ")
+    out:echo(self.var)
+    out:write(" = {} ")
+end
+
+function claw.if_:to_lua(out)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:write(" local ") out:echo(o) out:write(" = ") out:echo(self.in_vals[idx])
+        end
+    end
+    out:write(" if ") out:echo(self.cond) out:write(" then ")
+    out:echo(self.when_true)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:echo(o)
+            out:write(" = ")
+            out:echo(self.out_vals[idx])
+        end
+    end
+    out:write(" end ")
+end
+
+function claw.ifelse:to_lua(out) 
+    if #self.out_vars > 0 then 
+        out:write(" local ") 
+        for idx, o in ipairs(self.out_vars) do
+            out:echo(o)
+            out:write(",")
+        end out:pop()
+    end
+
+    out:write(" if ")
+    out:echo(self.cond)
+    out:write(" then ")
+    out:echo(self.when_true)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:echo(o) out:write(" = ") out:echo(self.t_rets[idx])
+        end 
+    end
+    out:write(" else ")
+    out:echo(self.when_false)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:echo(o) out:write(" = ") out:echo(self.f_rets[idx])
+        end 
+    end
+    out:write(" end ")
+end
+
+function atoms.var:to_lua(out)
+    out:write(" ", mangle_name(self.name), " ")
+end
+
+function seam.var:to_lua(out)
+    out:write(" ", mangle_name(self.name), " ")
+end
+
+function seam.ssa_var:to_lua(out)
+    if not self.varname then
+        self.varname = out:next_ssa()
+    end
+    out:write(self.varname)
+end
+
+function seam.ssa_assign:to_lua(out)
+    if not self.varname then
+        self.varname = out:next_ssa()
+        out:write("local ", self.varname, " = ")
+        out:echo(self.to)
+    end
+end
+
+function atoms.whitespace:to_lua(out) out:write(self.ws) end
+function claw.whitespace:to_lua(out) out:write(self.ws) end
+
+return LuaOutput

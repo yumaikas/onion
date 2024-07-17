@@ -7,6 +7,8 @@ local function dup(fn)
     end
 end
 
+local function cond(pred, a, b) if pred then return a else return b end end
+
 local function fmt(format) 
     return function(...)
         return string.format(format, ...)
@@ -24,7 +26,7 @@ end
 function me:__tostring()
     return "]]..name..[[("..string.format("]] 
         .. iter.strmap(fields, fmt(' %s = %%s ', ", "))  
-        ..  [[", ]]..iter.strmap(fields, fmt("tostring(self.%s)"), ", ") ..[[)..")"
+        ..cond(#fields>0,  [[", ]], '"')..iter.strmap(fields, fmt("tostring(self.%s)"), ", ") ..[[).." )"
 end
 ]]
 

@@ -10,16 +10,23 @@ local f, w, getter = iter.f, iter.w, iter.getter
 
 local molecules = require("molecules")
 
+local function curry(f, ...) 
+    local args = {...}
+    return function()
+        return f(table.unpack(args)) 
+    end
+end 
+
 local function makeBaseEnv() 
     local baseEnv = Env()
 
     local ops = [[(+ +)(- -)(* *)(> >)(< <)(mod %)(eq? ==)(neq? ~=)(.. ..)]]
     for k, v in ops:gmatch("%((%S+) (%S+)%)")  do
-        baseEnv:put(k, molecules.binop(v))
+        baseEnv:put(k, curry(molecules.binop, v))
     end
     local assign_ops = [[(+= +)(-= -)(or= or)(and= and)(*= *)(div= /)(..= ..)]]
     for k, v in assign_ops:gmatch("%((%S+) (%S+)%)")  do
-        baseEnv:put(k, atoms.assign_op(v))
+        baseEnv:put(k, curry(atoms.assign_op, v))
     end
 
     baseEnv:put("dup", molecules.shuffle('dup', w'a', w'a a'))
@@ -28,17 +35,18 @@ local function makeBaseEnv()
     baseEnv:put("drop", molecules.shuffle('drop', w'a', w''))
     baseEnv:put("true", atoms.bool(true))
     baseEnv:put("false", atoms.bool(false))
-    pp{"PPBOO", atoms.bool(true)}
-    pp{"PPBOO", atoms.bool(true).eff}
-    baseEnv:put("table", molecules.table_lit())
-    baseEnv:put("get", molecules.get())
-    baseEnv:put("put", molecules.put())
-    baseEnv:put("len", molecules.len())
-    baseEnv:put("t[", molecules.new_table_it())
-    baseEnv:put("[", molecules.push_it())
-    baseEnv:put("]", molecules.pop_it())
-    baseEnv:put("].", molecules.drop_it())
-    baseEnv:put("it", molecules.ref_it())
+    function ctor(k, v)
+        baseEnv:put(k, function() return v() end)
+    end
+    ctor("table", molecules.table_lit)
+    ctor("get",  molecules.get)
+    ctor("put", molecules.put)
+    ctor("len", molecules.len)
+    ctor("t[", molecules.new_table_it)
+    ctor("[", molecules.push_it)
+    ctor("]", molecules.pop_it)
+    ctor("].", molecules.drop_it)
+    ctor("it", molecules.ref_it)
 
     return baseEnv
 end
