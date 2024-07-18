@@ -27,11 +27,18 @@
       : ret.down ( -- v ) v 1 - { v } v ;
       ret ;
 
+: updown-o ( init -- obj ) { v }
+      table { ret }
+      : ret.up ( -- v ) v 1 + { v } v ;
+      : ret.down ( -- v ) v 1 - { v } v ;
+      ret ;
+
+: test-updown ( -- obj ) 1 updown-o ;
   1 updown
 
  : xy_of_pt ( pt -- x y ) [ it .x it .y ]. ;
-  : xy_of_pt_1 ( pt -- x y ) [ x>> y>> ]. ;
-  : v2_of_xy ( x y -- t ) table [ table.insert(#*) table.insert(#*) ] ;
+: xy_of_pt_1 ( pt -- x y ) [ x>> y>> ]. ;
+: v2_of_xy ( x y -- t ) table [ table.insert(#*) table.insert(#*) ] ;
 
   : /move-up ( # by -- ) y>> + >>y ;
   : /bounce ( # --  ) 10 /move-up ;
@@ -54,7 +61,7 @@
  \ : ptv2 ( -- t ) table 0 ->x 0 ->y 0 ->z ;
  : ptv3 ( -- t ) t[ 0 >>x 0 >>y 0 >>z ] ;
 
- : erpad ( u -- v ) table swap get ;
+ : erpad ( u -- v ) table get ;
 
    : chars ( str -- t ) t[ ] { c } [ it len 1 do dup it :sub(**\*) c swap table.insert(**) loop ]. c ; 
    : char-iter { str -- fn } 1 { i } : ( -- c ) i i str string.sub(***\*) 1 += i ; ; 

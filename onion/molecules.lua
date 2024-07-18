@@ -23,6 +23,7 @@ function mol(name, new, tostr)
     local e = molecules.expr:extend() 
     e.new = fn(new)
     e.__tostring = fn(tostr)
+    e.___name = name
     molecules[name] = e
     last = e
 end

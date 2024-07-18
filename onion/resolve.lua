@@ -62,8 +62,8 @@ function claw.body:resolve(env)
                     map(molecules.call(
                         val.name, 
                         iter.has_value(val.inputs, '#'),
-                        val.inputs, 
-                        val.outputs
+                        iter.copy(val.inputs), 
+                        iter.copy(val.outputs)
                     ))
                 else
                     local v = env:get(node.tok)

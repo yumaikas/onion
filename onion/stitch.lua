@@ -90,6 +90,7 @@ end
 function molecules.propget:stitch(stack, it_stack)
     self.obj = stack:pop()
     stack:push(seam.cell(self))
+    self.no_out = true
 end
 
 function molecules.propset:stitch(stack, it_stack)
@@ -100,6 +101,7 @@ end
 function molecules.prop_get_it:stitch(stack, it_stack)
     self.obj = it_stack:peek()
     stack:push(seam.cell(self))
+    self.no_out = true
 end
 
 function molecules.prop_set_it:stitch(stack, it_stack)
@@ -110,6 +112,7 @@ end
 function molecules.push_it:stitch(stack, it_stack)
     self.var, self.is_new = to_assign(stack:pop())
     it_stack:push(self.var)
+    self.no_out = not self.is_new
 end
 
 function molecules.pop_it:stitch(stack, it_stack)
@@ -132,15 +135,17 @@ end
 
 -- call stitches
 function molecules.call:stitch(stack, it_stack)
-
-    trace:pp{"HORKY", self.inputs}
-    for idx, v in iter.ripairs(self.inputs) do
+    trace:pp{"HORKY", self, stack}
+    local new_inputs = {}
+    for v in iter.backwards(self.inputs) do
+        trace("INP", v)
         if v == '#' then
-            self.inputs[idx] = it_stack:peek() or error("It stack underflow")
+            iter.shift(new_inputs, it_stack:peek() or error("It stack underflow"))
         else
-            self.inputs[idx] = stack:pop()
+            iter.shift(new_inputs, stack:pop())
         end
     end
+    self.inputs = new_inputs
     local idx = 1
     for v in iter.each(self.outputs) do
         local var = seam.cell(seam.ssa_var())
@@ -178,7 +183,7 @@ end
 
 function claw.func:stitch(outer_stack, it_stack)
     trace:push(self.name)
-    local stack = seam.stack()
+    local stack = seam.stack(tostring(self.name) .. ' value')
     -- trace.pp{"BITSCANNON", self.inputs, instanceof(self.inputs, claw.namelist)}
     if instanceof(self.inputs, claw.namelist) then
         local idx = 1
@@ -191,8 +196,15 @@ function claw.func:stitch(outer_stack, it_stack)
             end
         end
     end
+    if instanceof(self.inputs, claw.assign_many) then
+        for i in iter.each(self.inputs) do
+            if i == '#' then
+                it_stack:push(seam.cell(seam.var("it")))
+            end
+        end
+    end
     self.body:stitch(stack, it_stack)
-    self.seam_outputs = stack:copy()
+    self.seam_outputs = stack:copy(self.name)
     trace(self.outputs, "==", self.seam_outputs)
     assert(#self.seam_outputs == #self.outputs, "Invalid stack effect!")
 

@@ -244,8 +244,8 @@ function onion.compile(code)
     local env = BaseEnv()
     ast:resolve(env)
     ast:stack_infer()
-    local stack = seam.stack()
-    local it_stack = seam.stack()
+    local stack = seam.stack('toplevel')
+    local it_stack = seam.stack('toplevel it')
     ast:stitch(stack, it_stack)
 
     for a in iter.each(ast) do
