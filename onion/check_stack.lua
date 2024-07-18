@@ -95,6 +95,10 @@ function claw.each_loop:stack_infer()
     return self.eff
 end
 
+function molecules.call:stack_infer()
+    --TODO: RESUME
+end
+
 function claw.do_loop:stack_infer()
     local total_eff = Effect({'to','from'}, {})
     local body_eff = self.body:stack_infer()

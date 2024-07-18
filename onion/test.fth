@@ -17,8 +17,9 @@
 : signc { a -- -1/0/1 } cond a 0 eq? -> 0 of a 0 > -> 1 of true -> -1 of end ;
 
 
- : counter { init -- fn } 
-       : ( -- v ) init 1 + { init } init ; ;
+: counter { init -- fn } : ( -- v ) init 1 + { init } init ; ;
+-1 abs counter
+
   : updown { init -- obj } 
       init { v }
       table { ret }
@@ -36,7 +37,7 @@
   : /bounce ( # --  ) 10 /move-up ;
 
  1 2  v2_of_xy
-  : tbl-test ( -- obj )  table dup 1 swap >x ;
+  : tbl-test ( -- obj )  table dup 1 >x ;
 
   : add ( a b -- c ) + ;
   : xy_to_pt ( x y -- pt ) table [ >>y >>x ] ;

@@ -18,6 +18,7 @@ end
 local function record(name, super, ...) 
     local fields = {...}
     local me = super:extend()
+    me.___name = name
 
     local code = [[local me = ({...})[1]  function me:new(]]..iter.str(fields, ", ")..[[)
 ]]..iter.strmap(fields, dup(fmt("    self.%s = %s")), "\n")..[[

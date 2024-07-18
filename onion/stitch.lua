@@ -117,8 +117,14 @@ function molecules.pop_it:stitch(stack, it_stack)
     self.no_out = true
 end
 
-function molecules.drop_it:stitch(stack, it_stack) it_stack:pop() end
-function molecules.ref_it:stitch(stack, it_stack) stack:push(it_stack:peek()) end
+function molecules.drop_it:stitch(stack, it_stack) 
+    self.no_out = true
+    it_stack:pop() 
+end
+function molecules.ref_it:stitch(stack, it_stack) 
+    stack:push(it_stack:peek()) 
+    self.no_out = true
+end
 function molecules.new_table_it:stitch(stack, it_stack)
     self.var = seam.cell(seam.ssa_var())
     it_stack.push(self.var)
@@ -127,6 +133,7 @@ end
 -- call stitches
 function molecules.call:stitch(stack, it_stack)
 
+    trace:pp{"HORKY", self.inputs}
     for idx, v in iter.ripairs(self.inputs) do
         if v == '#' then
             self.inputs[idx] = it_stack:peek() or error("It stack underflow")
@@ -193,6 +200,7 @@ function claw.func:stitch(outer_stack, it_stack)
         outer_stack:push(self)
     end
     trace:pop()
+    self.no_out = self.name == claw.anon_fn
 end
 
 function claw.iter:stitch(stack, it_stack)
@@ -207,9 +215,11 @@ function claw.iter:stitch(stack, it_stack)
 
     local body_stack = seam.stack()
 
-    for lv in iter.each(self.loop_vars) do
+    for idx, lv in ipairs(self.loop_vars) do
         if lv ~= '_' then
-            body_stack:push(seam.ssa_var())
+            local v = seam.ssa_var()
+            body_stack:push(v)
+            self.loop_vars[idx] = v
         end
     end
     self.body:stitch(body_stack, it_stack)
@@ -249,7 +259,7 @@ end
 function claw.assign_many:stitch(stack, it_stack)
     self.assigns = {}
     for n in iter.backwards(self.varnames) do
-        iter.push(self.assigns, seam.assign(n, stack:pop()))
+        iter.push(self.assigns, stack:pop())
     end
 end
 

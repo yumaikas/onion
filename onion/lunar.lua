@@ -1,5 +1,7 @@
 local claw = require("claw")
 local atoms = require("atoms")
+local pp = require("pprint")
+local trace = require("trace")
 local molecules = require("molecules")
 local iter = require("iter")
 local Object = require("classic")
@@ -42,9 +44,19 @@ end
 function LuaOutput:echo(val)
     if val.to_lua then
         val:to_lua(self)
+    elseif type(val) == "string" then
+        self:write(val)
     else
-        self:comment(val)
+        self:comment(val, val.___name, type(val))
     end
+end
+
+function LuaOutput:echo_list(list, sep)
+    for i in iter.each(list) do
+        self:echo(i)
+        self:write(sep)
+    end
+    if #list > 0 then iter.pop(self.out) end
 end
 
 function LuaOutput:write_list(list, sep)
@@ -92,7 +104,7 @@ function seam.cell:to_lua(out)
     if self:get().to_lua then
         self:get():to_lua(out)
     else
-        out:comment(self:get())
+        out:echo(self:get())
     end
 end
 
@@ -101,6 +113,9 @@ function seam.lit:to_lua(out)
 end
 
 function seam.strlit:to_lua(out) out:write(string.format("%q", self.val)) end
+
+function molecules.ref_it:to_lua(out) end
+function molecules.drop_it:to_lua(out) end
 
 function molecules.push_it:to_lua(out)
     if self.is_new then
@@ -125,6 +140,7 @@ function molecules.binop:to_lua(out)
 end
 
 function molecules.call:to_lua(out)
+    out:comment("call!!", #self.outputs," ", #self.inputs)
     if #self.outputs > 0 then
         out:write(" local ")
         for o in iter.each(self.outputs) do
@@ -132,7 +148,7 @@ function molecules.call:to_lua(out)
             out:write(', ')
         end
         out:pop()
-    out:write(" = ")
+        out:write(" = ")
     end
     out:write(mangle_name(self.name))
     out:write("(")
@@ -162,7 +178,39 @@ function params()
     end
 end
 
+function claw.assign_many:to_lua(out)
+    local new_vars = {}
+    local reassigns = {}
+    for i, v in ipairs(self.varnames) do
+        if self.is_new[i] then
+            iter.push(new_vars, {v, self.assigns[i]})
+        else
+            iter.push(reassigns, {v, self.assigns[i]})
+        end
+    end
+    if #new_vars > 0 then
+        out:write("local ")
+        for v in iter.each(new_vars) do 
+            out:echo(v[1]) out:write(",")  
+        end
+        out:pop()
+        out:write(" = ")
+        for v in iter.each(new_vars) do out:echo(v[2]) out:write(", ") end
+        out:pop()
+    end
+    if #reassigns > 0 then
+        for v in iter.each(reassigns) do out:echo(v[1]) out:write(",")  end
+        out:pop()
+        out:write(" = ")
+        for v in iter.each(reassigns) do out:echo(v[2]) out:write(", ") end
+        out:pop()
+    end
+end
+
 function claw.func:to_lua(out)
+    if self.name == claw.anon_fn then
+        out:write(" ")
+    end
     out:write("function ")
     if self.name ~= claw.anon_fn then
         out:write(mangle_name(self.name))
@@ -192,11 +240,37 @@ function claw.func:to_lua(out)
     out:write(" end ")
 end
 
+function molecules.assign_op:to_lua(out)
+    out:write(self.var, " = ", self.var, self.op)
+    out:echo(self.value)
+end
+
+function molecules.prop_get_it:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(self.prop)
+end
+
 function molecules.propget:to_lua(out)
     out:echo(self.obj)
     out:write(".")
     out:write(self.prop)
 end
+
+function molecules.propset:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(self.prop, " = ")
+    out:echo(self.val)
+end
+
+function molecules.prop_set_it:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(self.prop, " = ")
+    out:echo(self.val)
+end
+
 
 function molecules.get:to_lua(out)
     out:echo(self.obj)
@@ -264,8 +338,42 @@ function claw.ifelse:to_lua(out)
     out:write(" end ")
 end
 
+function claw.each_loop:to_lua(out)
+    -- out:comment("each_loop")
+    -- out:comment(pp.pformat(self))
+    out:write(" for _, ")
+    out:echo(self.loop_var)
+    out:write(" in ipairs(")
+    out:echo(self.in_var)
+    out:write(") do ")
+    self.body:to_lua(out)
+    out:write(" end ")
+end
+
+function claw.iter:to_lua(out)
+    assert(#self.loop_vars > 0, "invalid loop_vars!")
+
+    out:write(" for ")
+    out:echo_list(self.loop_vars, ",")
+    out:write(" in ")
+    if #self.word > 0 then out:write(self.word, "(") end
+    out:echo_list(self.input_cells, ",")
+    if #self.word > 0 then out:write(")") end
+    out:write(" do ")
+    out:echo(self.body)
+    out:write(" end ")
+end
+
+function seam.var:to_lua(out) 
+    out:write(mangle_name(self.name))
+end
+
+function atoms.number:to_lua(out)
+    out:write(self.val)
+end
+
 function atoms.var:to_lua(out)
-    out:write(" ", mangle_name(self.name), " ")
+    out:write(mangle_name(self.name))
 end
 
 function seam.var:to_lua(out)
