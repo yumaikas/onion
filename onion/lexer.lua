@@ -22,10 +22,22 @@ function Lex:__tostring()
         iter.strmap(self._toks, f'(s) -> "["..tostring(s).."]"', " "))
 end
 
+function include_resolve(name)
+    return package.searchpath(name, "./?.fth;./?/init.fth;./?;") 
+end
+
 Lex.EOF = Object:extend()
+
 function Lex.EOF:__tostring() return "EOF" end
 
 function lex(input)
+    input = input:gsub("#include%(([^)]+)%)", function(thing) 
+        local f = io.open(include_resolve(thing), "r")
+        local ret = f:read("*a")
+        f:close()
+        return ret
+    end)
+
     input = input.." "
     local pos = 0
     local tokens = {}
@@ -67,7 +79,6 @@ function lex(input)
 
     return tokens
 end
--- 928cd7a4753edc
 
 local function matcher(of)
     function any_of(options)
