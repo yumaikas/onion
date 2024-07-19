@@ -258,7 +258,7 @@ function onion.compile(code)
     local out = LuaOutput()
     ast:to_lua(out)
     print(out:str())
-    trace(env:get("updown"))
+    -- trace(env:get("updown"))
 
     trace:pop()
     -- for i in iter.each(ast._items) do print(i) end

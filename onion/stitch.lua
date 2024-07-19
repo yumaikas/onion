@@ -72,6 +72,7 @@ end
 function molecules.len:stitch(stack, it_stack)
     self.obj = stack:pop()
     stack:push(seam.cell(self))
+    self.no_out = true
 end
 
 function molecules.get:stitch(stack, it_stack)
@@ -130,7 +131,7 @@ function molecules.ref_it:stitch(stack, it_stack)
 end
 function molecules.new_table_it:stitch(stack, it_stack)
     self.var = seam.cell(seam.ssa_var())
-    it_stack.push(self.var)
+    it_stack:push(self.var)
 end
 
 -- call stitches
@@ -247,9 +248,10 @@ end
 
 
 function claw.do_loop:stitch(stack, it_stack)
-    self.to = stack:pop()
     self.from = stack:pop()
-    stack:push(seam.ssa_var())
+    self.to = stack:pop()
+    self.var = seam.ssa_var()
+    stack:push(self.var)
     self.body:stitch(stack, it_stack)
 end
 
@@ -257,13 +259,15 @@ function claw.do_step_loop:stitch(stack, it_stack)
     self.step = stack:pop()
     self.to = stack:pop()
     self.from = stack:pop()
-    stack:push(seam.ssa_var())
+    self.var = seam.ssa_var()
+    stack:push(self.var)
     self.body:stitch(stack, it_stack)
 end
 
 function claw.do_while_loop:stitch(stack, it_stack)
     local cond_stack = seam.stack()
     self.cond:stitch(cond_stack, it_stack)
+    self.cond_val = cond_stack:pop()
     self.body:stitch(seam.stack(), it_stack)
 end
 
