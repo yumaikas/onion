@@ -113,6 +113,7 @@ function claw.body:resolve(env)
 end
 
 function claw.whitespace:resolve(env) end
+
 function claw.assign_many:resolve(env) 
     self.is_new = {}
     for i, v in ipairs(self.varnames) do
@@ -122,16 +123,28 @@ function claw.assign_many:resolve(env)
     end
 end
 
+function resolve_namelist(self, env, list)
+    self.is_new = {}
+    local i = 1
+    for v in iter.each(list) do
+        local ev = env:get(v)
+        self.is_new[i] = not env:get(v)
+        env:put(v, atoms.var(v))
+        i = i + 1
+    end
+end
+
 function claw.ifelse:resolve(env) 
     self.when_true:resolve(env)
     self.when_false:resolve(env)
 end
+
 function claw.if_:resolve(env) self.when_true:resolve(env) end
 function claw.func:resolve(env)
     trace:push(self.name)
     env:put(self.name, self)
     local fenv = Env(env)
-    if instanceof(self.inputs, claw.assign_many) then self.inputs:resolve(fenv) end
+    if self.input_assigns then resolve_namelist(self, fenv, self.inputs) end
     self.body:resolve(fenv)
     self.env = fenv
     trace:pop()

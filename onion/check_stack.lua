@@ -59,7 +59,11 @@ function claw.func:stack_infer()
     -- internal eff
     local body_eff = self.body:stack_infer()
     local inputs = iter.filter(self.inputs, f'(i) -> i ~= "#" and i ~= "it"')
-    body_eff:assert_matches_depths(#inputs, #self.outputs, tostring(trace))
+    if self.input_assigns then
+        body_eff:assert_matches_depths(0, #self.outputs, tostring(trace))
+    else
+        body_eff:assert_matches_depths(#inputs, #self.outputs, tostring(trace))
+    end
     -- External eff 
     if self.name == claw.anon_fn then
         self.eff = Effect({}, {'fn'})

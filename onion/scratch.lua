@@ -162,6 +162,7 @@ function parse.of_chunk(t, end_, end_name)
             t:next()
             local name = cond(t:any_of{"(", "{"} or t:can(short_eff.is), claw.anon_fn, t:tok())
             if name ~= claw.anon_fn then t:next() end
+            local input_assigns = false
             local inputs, outputs = nil, nil
             assert(t:any_of{"(", "{"} or t:can(short_eff.is), "Word def should have stack effect")
             if t:is("(") then
@@ -171,8 +172,9 @@ function parse.of_chunk(t, end_, end_name)
                 outputs = claw.namelist(chunk(t, ")", "end of stack effect"))
                 t:next()
             elseif t:is("{") then
+                input_assigns = true
                 t:next()
-                inputs = claw.assign_many(chunk(t, "--", "var stack effect split"))
+                inputs = claw.namelist(chunk(t, "--", "var stack effect split"))
                 t:next()
                 outputs = claw.namelist(chunk(t, "}", "end of var stack effect"))
                 t:next()
@@ -185,7 +187,9 @@ function parse.of_chunk(t, end_, end_name)
                 error("Word def should have stack effect!")
             end
             fn_body = parse.of_chunk(t, ";", "end-of-word")
-            body:compile(claw.func(name, inputs, outputs, fn_body))
+            local fn = claw.func(name, inputs, outputs, fn_body)
+            fn.input_assigns = input_assigns
+            body:compile(fn)
             t:next()
         elseif t:is("do") then
             t:next()
@@ -254,6 +258,7 @@ function onion.compile(code)
     local out = LuaOutput()
     ast:to_lua(out)
     print(out:str())
+    trace(env:get("updown"))
 
     trace:pop()
     -- for i in iter.each(ast._items) do print(i) end

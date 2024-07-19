@@ -185,7 +185,7 @@ function claw.func:stitch(outer_stack, it_stack)
     trace:push(self.name)
     local stack = seam.stack(tostring(self.name) .. ' value')
     -- trace.pp{"BITSCANNON", self.inputs, instanceof(self.inputs, claw.namelist)}
-    if instanceof(self.inputs, claw.namelist) then
+    if not self.input_assigns then
         local idx = 1
         for i in iter.each(self.inputs) do
             if i ~= '#' then
@@ -196,7 +196,7 @@ function claw.func:stitch(outer_stack, it_stack)
             end
         end
     end
-    if instanceof(self.inputs, claw.assign_many) then
+    if self.input_assigns then
         for i in iter.each(self.inputs) do
             if i == '#' then
                 it_stack:push(seam.cell(seam.var("it")))
