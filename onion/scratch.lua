@@ -120,22 +120,25 @@ end
 local parse =  {}
 
 function parse.cond_body(t)
-   local clauses = claw.body() 
+    local clauses = claw.body() 
 
-   while t:tok() do
+    while t:tok() do
+        local ws
         if t:matches("[\r\n]") then
-            body:compile(claw.whitespace(t:tok()))
+            ws = claw.whitespace(t:tok())
             t:next()
         end
         local pred_body = parse.of_chunk(t, "->", "cond pred clause") t:next()
         local when_true_body = parse.of_chunk(t, "of", "cond body clause") t:next()
-        clauses:compile(claw.cond_clause(pred_body, when_true_body))
+        local clause = claw.cond_clause(pred_body, when_true_body)
+        if ws then clause.pre = ws end
+        clauses:compile(clause)
         if t:is("end") then
-            t:next()
-            return claw.cond(clauses)
-        end
-   end
-   error("Expected an 'end' token")
+        t:next()
+        return claw.cond(clauses)
+    end
+end
+error("Expected an 'end' token")
 end
 
 function parse.of_chunk(t, end_, end_name)

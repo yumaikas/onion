@@ -1,7 +1,5 @@
-: r: ( path -- module ) require(*\*) ;
+: r ( path -- module ) require(*\*) ;
 : r! ( path -- ) require(*) ;
-
-\ require{ "pprint" pprint "lex" lex "buffer" Buffer "effects" Effect "classic" Object "ast" _ "inputs" _ "stack" _ "scanner" _ } 
 
 : even? ( a -- ? ) 2 mod 0 eq? ;
 : dup2 { a b -- a b a b } a b a b ;
@@ -14,7 +12,9 @@
 : abs ( a -- +a ) dup 0 < if -1 * then ;
 : abs_ { a -- a } a 0 < if a -1 * else a then ;
 : sign { a -- -1/0/1 } a 0 eq? if 0 else a 0 > if 1 else -1 then then ;
-: signc { a -- -1/0/1 } cond a 0 eq? -> 0 of a 0 > -> 1 of true -> -1 of end ;
+: signc { a -- -1/0/1 } 
+    cond a 0 eq? -> 0 of 
+    a 0 > -> 1 of true -> -1 of end ;
 
 
 : counter { init -- fn } : ( -- v ) init 1 + { init } init ; ;

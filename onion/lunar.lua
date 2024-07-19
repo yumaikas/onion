@@ -252,10 +252,10 @@ function claw.func:to_lua(out)
         out:write(mangle_name(self.name))
     end
     out:write("(" ) 
-    if instanceof(self.inputs, claw.namelist) then
+    if not self.input_assigns then
         out:write_list(iter.map(self.inputs, params()), ", ")
-    elseif instanceof(self.inputs, claw.assign_many) then
-        out:write_list(iter.map(self.inputs.varnames, map_it_params), ", ")
+    elseif self.input_assigns then
+        out:write_list(iter.map(self.inputs, map_it_params), ", ")
     end
     out:write(") ")
     self.body:to_lua(out)
@@ -447,16 +447,16 @@ function claw.cond:to_lua(out)
     for c in iter.each(self.clauses) do
         if first then out:write(" if ") first = false else
             out:write(" elseif ")
-            out:echo(c.pred.cond_expr)
-            out:write(" then ")
-            out:echo(c.body)
-            for idx, ov in ipairs(c.out_vars) do
-                out:echo(self.out_vars[idx])
-                out:write(" = ")
-                out:echo(ov)
-                out:write(" ")
-            end
-
+        end
+        if c.pre then out:echo(c.pre) end
+        out:echo(c.pred.cond_expr)
+        out:write(" then ")
+        out:echo(c.body)
+        for idx, ov in ipairs(c.out_vars) do
+            out:echo(self.out_vars[idx])
+            out:write(" = ")
+            out:echo(ov)
+            out:write(" ")
         end
     end
     out:echo(" end ")
