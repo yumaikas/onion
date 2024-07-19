@@ -7,7 +7,6 @@ package.path = "./onion/?.lua;"..package.path
 -- stitch(ast+(blocks & exprs))
 -- ssa allocate (ast + (blocks & exprs))
 
--- local lexer = require("lex")
 local trace = require("trace")
 local Lex = require("lexer")
 local Env = require("resolve")
