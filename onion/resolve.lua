@@ -91,6 +91,8 @@ function claw.body:resolve(env)
                         outs
                     ))
                 end
+            elseif node.tok:match("^@") then
+                map(atoms.lit(node.tok:sub(2)))
             elseif node.tok:match("^%.") then
                 map(molecules.propget(node.tok:sub(2)))
             elseif node.tok:match("^>>") then

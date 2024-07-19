@@ -43,6 +43,11 @@ function atoms.string:stitch(stack, it_stack)
     self.no_out = true
 end
 
+function atoms.lit:stitch(stack, it_stack)
+    stack:push(seam.cell(seam.var(self.val)))
+    self.no_out = true
+end
+
 function molecules.binop:stitch(stack, it_stack) 
     self.b, self.a = stack:pop(), stack:pop()
     stack:push(seam.cell(self))
@@ -112,7 +117,7 @@ end
 
 function molecules.push_it:stitch(stack, it_stack)
     self.var, self.is_new = to_assign(stack:pop())
-    it_stack:push(self.var)
+    it_stack:push(seam.cell(self.var))
     self.no_out = not self.is_new
 end
 
@@ -175,6 +180,8 @@ end
 -- claw stitches
 
 function claw.body:stitch(stack, it_stack)
+    assert(stack, "missing stack!")
+    assert(it_stack, "missing it_stack!")
     for idx, node in ipairs(self._items) do
         trace("BEFORE", node, type(node), stack)
         node:stitch(stack, it_stack)
@@ -242,7 +249,7 @@ function claw.each_loop:stitch(stack, it_stack)
     self.in_var = stack:pop()
     local body_stack = seam.stack()
     self.loop_var = seam.ssa_var()
-    body_stack:push(self.loop_var)
+    body_stack:push(seam.cell(self.loop_var))
     self.body:stitch(body_stack, it_stack)
 end
 
@@ -251,7 +258,7 @@ function claw.do_loop:stitch(stack, it_stack)
     self.from = stack:pop()
     self.to = stack:pop()
     self.var = seam.ssa_var()
-    stack:push(self.var)
+    stack:push(sem.cell(self.var))
     self.body:stitch(stack, it_stack)
 end
 
@@ -260,7 +267,7 @@ function claw.do_step_loop:stitch(stack, it_stack)
     self.to = stack:pop()
     self.from = stack:pop()
     self.var = seam.ssa_var()
-    stack:push(self.var)
+    stack:push(seam.cell(self.var))
     self.body:stitch(stack, it_stack)
 end
 
@@ -285,7 +292,7 @@ function atoms.whitespace:stitch(_,_) end
 function claw.if_:stitch(stack, it_stack)
     self.cond = stack:pop()
     local cond_stack = stack:copy()
-    self.when_true:stitch(cond_stack)
+    self.when_true:stitch(cond_stack, it_stack)
     self.in_vals = {}
     self.out_vals = {}
     self.out_vars = {}
@@ -339,7 +346,7 @@ function claw.cond:stitch(stack, it_stack)
     for _ in iter.each(self.eff.out_eff) do
         local out_var = seam.ssa_var()
         iter.shift(self.out_vars, out_var)
-        stack:push(out_var)
+        stack:push(seam.cell(out_var))
     end
 end
 

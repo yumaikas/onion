@@ -90,7 +90,12 @@ function short_eff.parse(word)
 end
 
 local iter_eff = {}
-function iter_eff.is(word) return not not word:find("[^[]*%[#?%**\\[*_]*%]$") end
+function iter_eff.is(word) 
+    trace.enable()
+    trace(word==Lex.EOF)
+    trace:pp(word)
+    trace.disable()
+    return (not not word:find("[^[]*%[#?%**\\[*_]*%]$")) end
 function tests.iter_effs_parse()
     function t(a, b) assert(iter_eff.is(a), b) end
     t("[*\\*]", "1 to 1")
@@ -132,6 +137,10 @@ function parse.cond_body(t)
         local clause = claw.cond_clause(pred_body, when_true_body)
         if ws then clause.pre = ws end
         clauses:compile(clause)
+        if t:matches("[\r\n]") then
+            clause.post = claw.whitespace(t:tok())
+            t:next()
+        end
         if t:is("end") then
         t:next()
         return claw.cond(clauses)
@@ -237,15 +246,9 @@ function parse.of_chunk(t, end_, end_name)
     error("Expected "..(end_name or "nil" ).." before end of code!")
 end
 
-function onion.parse(code)
-    local toks = Lex(code)
-    local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
-end
-
 function onion.compile(code)
     trace:push("TOPLEVEL")
     local toks = Lex(code)
-    print(toks)
     local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
     local env = BaseEnv()
     ast:resolve(env)
@@ -253,18 +256,15 @@ function onion.compile(code)
     local stack = seam.stack('toplevel')
     local it_stack = seam.stack('toplevel it')
     ast:stitch(stack, it_stack)
-
-    for a in iter.each(ast) do
-        trace("AST", a)
-    end
+    -- for a in iter.each(ast) do trace("AST", a) end
     local out = LuaOutput()
     ast:to_lua(out)
-    print(out:str())
-    -- trace(env:get("updown"))
-
     trace:pop()
-    -- for i in iter.each(ast._items) do print(i) end
+    return out:str()
+end
 
+function onion.exec(code, ...)
+    assert(load(onion.compile(code), "t"))(...)
 end
 
 return onion

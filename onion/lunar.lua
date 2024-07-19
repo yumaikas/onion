@@ -7,7 +7,6 @@ local iter = require("iter")
 local Object = require("classic")
 local seam = require("seam")
 
-
 local LuaOutput = Object:extend()
 
 function LuaOutput:new()
@@ -78,6 +77,7 @@ function claw.body:to_lua(out)
         if node.no_out then
         elseif node.to_lua then
             node:to_lua(out)
+            out:write(" ")
         else
             out:comment("Unsupported: ", tostring(node))
         end
@@ -85,7 +85,8 @@ function claw.body:to_lua(out)
 end
 
 function mangle_name(n)
-    n = n:gsub("[?#/\\%,!-]", {
+    n = n:gsub("[?#/\\%,!+-]", {
+        ['+'] = "_plus_", 
         ['!'] = "_bang_",
         [','] = "_comma_",
         ['#'] = "_hash_",
@@ -112,21 +113,17 @@ function seam.lit:to_lua(out)
     out:write(self.val)
 end
 
-function seam.strlit:to_lua(out) out:write(string.format("%q", self.val)) end
+function seam.strlit:to_lua(out) out:write((string.format("%q", self.val):gsub("\\\\", "\\"))) end
 
 function molecules.ref_it:to_lua(out) end
 function molecules.drop_it:to_lua(out) end
 
 function molecules.push_it:to_lua(out)
-    if self.is_new then
-        out:write(" local ")
-    end
     out:echo(self.var)
-    out:write(" ")
 end
 
 function molecules.new_table_it:to_lua(out)
-    out:write("local ")
+    out:write("local ") 
     out:echo(self.var)
     out:write(" = {} ")
 end
@@ -153,7 +150,7 @@ end
 function molecules.call:to_lua(out)
     -- out:comment("call!!", #self.outputs," ", #self.inputs)
     if #self.outputs > 0 then
-        out:write(" local ")
+        out:write(" local ") 
         for o in iter.each(self.outputs) do
             out:echo(o)
             out:write(', ')
@@ -165,6 +162,7 @@ function molecules.call:to_lua(out)
     out:write("(")
     if #self.inputs > 0 then
         for i in iter.each(self.inputs) do
+            -- out:comment(i)
             out:echo(i)
             out:write(", ")
         end
@@ -176,7 +174,7 @@ end
 function molecules.mcall:to_lua(out)
     -- out:comment("call!!", #self.outputs," ", #self.inputs)
     if #self.outputs > 0 then
-        out:write(" local ")
+        out:write(" local ") 
         for o in iter.each(self.outputs) do
             out:echo(o)
             out:write(', ')
@@ -225,9 +223,9 @@ function claw.assign_many:to_lua(out)
         end
     end
     if #new_vars > 0 then
-        out:write("local ")
+        out:write("local ") 
         for v in iter.each(new_vars) do 
-            out:echo(v[1]) out:write(",")  
+            out:echo(mangle_name(v[1])) out:write(",")  
         end
         out:pop()
         out:write(" = ")
@@ -235,7 +233,7 @@ function claw.assign_many:to_lua(out)
         out:pop()
     end
     if #reassigns > 0 then
-        for v in iter.each(reassigns) do out:echo(v[1]) out:write(",")  end
+        for v in iter.each(reassigns) do out:echo(mangle_name(v[1])) out:write(",")  end
         out:pop()
         out:write(" = ")
         for v in iter.each(reassigns) do out:echo(v[2]) out:write(", ") end
@@ -325,7 +323,7 @@ function molecules.put:to_lua(out)
 end
 
 function molecules.table_lit:to_lua(out)
-    out:write("local ")
+    out:write("local ") 
     out:echo(self.var)
     out:write(" = {} ")
 end
@@ -439,7 +437,7 @@ end
 function claw.cond:to_lua(out)
     local first = true
     if #self.out_vars > 0 then
-        out:write(" local ")
+        -- out:write(" local ")
         for ov in iter.each(self.out_vars) do
             out:echo(ov)
         end
@@ -458,6 +456,7 @@ function claw.cond:to_lua(out)
             out:echo(ov)
             out:write(" ")
         end
+        if c.post then out:echo(c.post) end
     end
     out:echo(" end ")
 end
@@ -467,6 +466,10 @@ function seam.var:to_lua(out)
 end
 
 function atoms.number:to_lua(out)
+    out:write(self.val)
+end
+
+function atoms.lit:to_lua(out)
     out:write(self.val)
 end
 
@@ -488,9 +491,11 @@ end
 function seam.ssa_assign:to_lua(out)
     if not self.varname then
         self.varname = out:next_ssa()
-        out:write("local ", self.varname, " = ")
+        out:write("local ", self.varname, " = ") 
         out:echo(self.to)
         out:write(" ")
+    else
+        out:write(self.varname)
     end
 end
 

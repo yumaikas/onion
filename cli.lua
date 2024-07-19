@@ -31,6 +31,11 @@ function main()
             end
             print()
             argIdx = argIdx + 2
+        elseif arg[argIdx] == "--exec" then
+            local f = io.open(arg[argIdx + 1], "r")
+            local str = f:read("*a") f:close()
+            local code = onion.exec(str)
+            argIdx = argIdx + 2
         elseif arg[argIdx] == "--compile" then
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a")
