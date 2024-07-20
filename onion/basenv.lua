@@ -20,7 +20,7 @@ end
 local function makeBaseEnv() 
     local baseEnv = Env()
 
-    local ops = [[(+ +)(- -)(* *)(> >)(< <)(mod %)(eq? ==)(neq? ~=)(.. ..)(or or)(and and)(<= <=)(>= >=)]]
+    local ops = [[(+ +)(- -)(* *)(> >)(< <)(div /)(idiv //)(mod %)(eq? ==)(neq? ~=)(.. ..)(or or)(and and)(<= <=)(>= >=)]]
     for k, v in ops:gmatch("%((%S+) (%S+)%)")  do
         baseEnv:put(k, curry(molecules.binop, v))
     end
@@ -42,6 +42,7 @@ local function makeBaseEnv()
     ctor("get",  molecules.get)
     ctor("put", molecules.put)
     ctor("len", molecules.len)
+    ctor("not", molecules._not)
     ctor("t[", molecules.new_table_it)
     ctor("[", molecules.push_it)
     ctor("]", molecules.pop_it)

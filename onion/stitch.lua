@@ -80,6 +80,13 @@ function molecules.len:stitch(stack, it_stack)
     self.no_out = true
 end
 
+function molecules._not:stitch(stack, it_stack)
+    self.obj = stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+
 function molecules.get:stitch(stack, it_stack)
     self.obj = stack:pop()
     self.key = stack:pop()
@@ -217,7 +224,7 @@ function claw.func:stitch(outer_stack, it_stack)
     assert(#self.seam_outputs == #self.outputs, "Invalid stack effect!")
 
     if self.name == claw.anon_fn then
-        outer_stack:push(self)
+        outer_stack:push(seam.cell(self))
     end
     trace:pop()
     self.no_out = self.name == claw.anon_fn
@@ -238,7 +245,7 @@ function claw.iter:stitch(stack, it_stack)
     for idx, lv in ipairs(self.loop_vars) do
         if lv ~= '_' then
             local v = seam.ssa_var()
-            body_stack:push(v)
+            body_stack:push(seam.cell(v))
             self.loop_vars[idx] = v
         end
     end
@@ -258,7 +265,7 @@ function claw.do_loop:stitch(stack, it_stack)
     self.from = stack:pop()
     self.to = stack:pop()
     self.var = seam.ssa_var()
-    stack:push(sem.cell(self.var))
+    stack:push(seam.cell(self.var))
     self.body:stitch(stack, it_stack)
 end
 
@@ -301,7 +308,7 @@ function claw.if_:stitch(stack, it_stack)
         local ov = seam.ssa_var()
         iter.shift(self.in_vals, stack:pop())
         iter.shift(self.out_vars, ov)
-        stack:push(ov)
+        stack:push(seam.cell(ov))
     end
 end
 
@@ -322,7 +329,7 @@ function claw.ifelse:stitch(stack, it_stack)
     for o in iter.each(self.t_rets) do
         local out_var = seam.ssa_var()
         iter.shift(self.out_vars, out_var)
-        stack:push(out_var)
+        stack:push(seam.cell(out_var))
     end
 end
 

@@ -85,8 +85,11 @@ function claw.body:to_lua(out)
 end
 
 function mangle_name(n)
-    n = n:gsub("[?#/\\%,!+-]", {
+    n = n:gsub("[?#/\\%,!+<>*-]", {
         ['+'] = "_plus_", 
+        ['<'] = "_lt_",
+        ['*'] = "_mult_",
+        ['>'] = "_gt_",
         ['!'] = "_bang_",
         [','] = "_comma_",
         ['#'] = "_hash_",
@@ -136,6 +139,11 @@ end
 
 function molecules.len:to_lua(out)
     out:write("#")
+    out:echo(self.obj)
+end
+
+function molecules._not:to_lua(out)
+    out:write("not ")
     out:echo(self.obj)
 end
 
@@ -282,19 +290,19 @@ end
 function molecules.prop_get_it:to_lua(out)
     out:echo(self.obj)
     out:write(".")
-    out:write(self.prop)
+    out:write(mangle_name(self.prop))
 end
 
 function molecules.propget:to_lua(out)
     out:echo(self.obj)
     out:write(".")
-    out:write(self.prop)
+    out:write(mangle_name(self.prop))
 end
 
 function molecules.propset:to_lua(out)
     out:echo(self.obj)
     out:write(".")
-    out:write(self.prop, " = ")
+    out:write(mangle_name(self.prop), " = ")
     out:echo(self.val)
     out:write(" ")
 end
@@ -302,7 +310,7 @@ end
 function molecules.prop_set_it:to_lua(out)
     out:echo(self.obj)
     out:write(".")
-    out:write(self.prop, " = ")
+    out:write(mangle_name(self.prop), " = ")
     out:echo(self.val)
     out:write(" ")
 end
@@ -317,7 +325,9 @@ end
 
 function molecules.put:to_lua(out)
     out:echo(self.obj)
-    out:write("[", self.key, "]")
+    out:write("[")
+    out:echo(self.key)
+    out:write("]")
     out:write(" = ")
     out:echo(self.val)
 end
@@ -369,6 +379,7 @@ function claw.ifelse:to_lua(out)
     if #self.out_vars > 0 then 
         for idx, o in ipairs(self.out_vars) do
             out:echo(o) out:write(" = ") out:echo(self.f_rets[idx])
+            out:write(" ")
         end 
     end
     out:write(" end ")
@@ -437,7 +448,7 @@ end
 function claw.cond:to_lua(out)
     local first = true
     if #self.out_vars > 0 then
-        -- out:write(" local ")
+        out:write(" local ")
         for ov in iter.each(self.out_vars) do
             out:echo(ov)
         end
@@ -491,7 +502,7 @@ end
 function seam.ssa_assign:to_lua(out)
     if not self.varname then
         self.varname = out:next_ssa()
-        out:write("local ", self.varname, " = ") 
+        out:write(" local ", self.varname, " = ") 
         out:echo(self.to)
         out:write(" ")
     else
