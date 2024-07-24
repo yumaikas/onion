@@ -49,7 +49,7 @@ function lex(input)
         pos = new_pos
         if new_tok:find("^\\$") then 
             _, _, pos = input:find("[^\r\n]+[\r\n]+()", pos)
-        elseif new_tok:find('^"') and new_tok:find('"$') then
+        elseif new_tok:find('^"') and new_tok:find('"$') and #new_tok > 1 then
             iter.push(tokens, new_tok)
         elseif new_tok:find('^"') then
             local quote_scanning = true

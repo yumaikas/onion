@@ -131,6 +131,13 @@ function molecules.new_table_it:to_lua(out)
     out:write(" = {} ")
 end
 
+function molecules.name_it:to_lua(out)
+    out:write("local ")
+    out:echo(self.to)
+    out:write(" = ")
+    out:echo(self.from)
+end
+
 function molecules.prop_set_it:to_lua(out)
     out:echo(self.obj)
     out:write(".", self.prop, " = ")

@@ -55,7 +55,12 @@ claw.unresolved.__tostring = f'(s) -> "%["..s.tok.."]"'
 
 local anon = Object:extend()
 anon.__tostring = f'(s) -> "anon-fn"'
+local it_fn = Object:extend()
+it_fn.new = f'(s, name) s.name=name'
+it_fn.__tostring = f'(s) -> "it-fn"'
+
 claw.anon_fn = anon()
+claw.it_fn = it_fn
 
 return claw
 

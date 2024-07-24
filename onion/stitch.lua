@@ -137,10 +137,18 @@ function molecules.drop_it:stitch(stack, it_stack)
     self.no_out = true
     it_stack:pop() 
 end
+
 function molecules.ref_it:stitch(stack, it_stack) 
     stack:push(it_stack:peek()) 
     self.no_out = true
 end
+
+function molecules.name_it:stitch(stack, it_stack)
+    self.from = it_stack:pop()
+    self.to = seam.cell(seam.var(self.name))
+    it_stack:push(to)
+end
+
 function molecules.new_table_it:stitch(stack, it_stack)
     self.var = seam.cell(seam.ssa_var())
     it_stack:push(self.var)

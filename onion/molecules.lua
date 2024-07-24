@@ -96,6 +96,7 @@ function molecules.mcall:init()
     self.eff = eff(ins, iter.copy(self.outputs))
 end
 
+mol('name_it', '(s, name) s.name=name', '(s) -> "name-it:"..s.name') e(0,0)
 function mol_str(name, str) mol(name, '()', '() -> "'..str..'"') end
 mol_str('new_table_it', 'new-table-it') e(0, 0) --
 mol_str('push_it', 'push-it') e(1, 0) --

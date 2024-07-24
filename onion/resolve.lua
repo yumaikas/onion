@@ -73,7 +73,6 @@ function claw.body:resolve(env)
                         map(v)
                     end
                 end
-
             elseif call_eff.is(node.tok) then
                 local word, ins, outs = call_eff.parse(node.tok)
                 if word:find("^:") then
@@ -91,6 +90,11 @@ function claw.body:resolve(env)
                         outs
                     ))
                 end
+            elseif node.tok:match("^::") then
+                local it_name = node.tok:sub(3)
+                env:put(claw.it_fn, it_name)
+                env:put(it_name, atoms.var(it_name))
+                map(molecules.name_it(it_name))
             elseif node.tok:match("^@") then
                 map(atoms.lit(node.tok:sub(2)))
             elseif node.tok:match("^%.") then
@@ -142,7 +146,12 @@ function claw.ifelse:resolve(env)
 end
 
 function claw.if_:resolve(env) self.when_true:resolve(env) end
+
 function claw.func:resolve(env)
+    if instanceof(self.name, claw.it_fn) then
+        self.name = env:get(claw.it_fn) .. "." .. self.name.name
+    end
+
     trace:push(self.name)
     env:put(self.name, self)
     local fenv = Env(env)

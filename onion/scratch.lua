@@ -95,7 +95,7 @@ function iter_eff.is(word)
     trace(word==Lex.EOF)
     trace:pp(word)
     trace.disable()
-    return (not not word:find("[^[]*%[#?%**\\[*_]*%]$")) end
+    return (not not string.find(word, "[^[]*%[#?%**\\[*_]*%]$")) end
 function tests.iter_effs_parse()
     function t(a, b) assert(iter_eff.is(a), b) end
     t("[*\\*]", "1 to 1")
@@ -142,18 +142,18 @@ function parse.cond_body(t)
             t:next()
         end
         if t:is("end") then
-        t:next()
-        return claw.cond(clauses)
+            t:next()
+            return claw.cond(clauses)
+        end
     end
-end
-error("Expected an 'end' token")
+    error("Expected an 'end' token")
 end
 
 function parse.of_chunk(t, end_, end_name)
     print("Parsing for "..(end_name or 'nil'))
     local is_end = matcher(end_)
     local body = claw.body()
-    while t:tok() do
+    while t:tok() and not (t:tok() == Lex.EOF and end_ ~= Lex.EOF)  do
         if is_end(t:tok()) then
             return body, t:tok()
         end
@@ -169,9 +169,12 @@ function parse.of_chunk(t, end_, end_name)
                 body:compile(claw.if_(t_body))
             end
             t:next()
-        elseif t:is(":") then
+        elseif t:is(":") or t:is("::") then
+            local is_it_fn = t:is("::")
             t:next()
             local name = cond(t:any_of{"(", "{"} or t:can(short_eff.is), claw.anon_fn, t:tok())
+            if is_it_fn and name == claw.anon_fn then error("An :: function defintion cannot be anonymous") end
+            if is_it_fn then name = claw.it_fn(name) end
             if name ~= claw.anon_fn then t:next() end
             local input_assigns = false
             local inputs, outputs = nil, nil
