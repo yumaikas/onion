@@ -7,44 +7,53 @@ table { claw }
 @nil { me }
 : qwt (*\*) "'" swap .. "'" .. ;
 
-: clawss { name ctor -- } Object :extend(\*) { cls } cls "new" ctor put  claw name cls put cls { me } ;
+: class (\*) Object :extend(\*) ;
 
-"parse" : (*\) ; clawss
+class [ ::claw.parse ].
 
-"namelist" : ( # from -- ) >>_items ; clawss 
-: me.__push ( # i -- ) _items>> [ , ]  ;
-: me.__tostring ( # -- s ) _items>> t[ "n:{ " , each qwt , ", " , for #pop " }" , ]s ;
-: me.items ( # -- s ) _items>> ;
-: me.__each ( # -- iter ) _items>> iter.each(*\*) ;
+class [ ::claw.namelist
+:: new (#*\) >>_items ;
+:: __push ( # i -- ) _items>> [ , ]  ;
+:: __tostring ( # -- s ) _items>> t[ "n:{ " , each qwt , ", " , for #pop " }" , ]s ;
+:: items ( # -- s ) _items>> ;
+:: __each ( # -- iter ) _items>> iter.each(*\*) ;
+].
 
-"ifelse" : ( # t f -- ) >>when_false >>when_true ; clawss 
-"if_" : (#*\) >>when_true ; clawss 
-"whitespace" : (#*\) >>whitespace ; clawss 
-"assign_many" : ( # vars -- ) >>varnames ; clawss
-: me.__tostring ( # -- s ) varnames>> t[ "::{ " , each qwt , ", " , for #pop " }" ,  ]s  ;
-"func" : (#****\) >>body >>outputs >>inputs >>name ; clawss
+class [ ::claw.ifelse :: new ( t f -- ) >>when_false >>when_true ; ].
+class [ ::claw.if_ :: new (#*\) >>when_true ; ].
+class [ ::claw.whitespace :: new (#*\) >>whitespace ; ].
+class [ ::claw.assign_many 
+:: new (#*\) >>varnames ; 
+:: __tostring ( # -- s ) varnames>> t[ "::{ " , each qwt , ", " , for #pop " }" ,  ]s  ;
+].
 
-"iter" : (#****\) >>body >>loop_vars >>inputs >>word ; clawss
-: me.init ( # -- s ) inputs>> table or >>inputs loop_vars>> table or >>loop_vars ;
+class [ ::claw.func :: new (#****\) >>body >>outputs >>inputs >>name ; ].
+class [ ::claw.iter 
+:: new (#****\) >>body >>loop_vars >>inputs >>word ; 
+:: init ( # -- ) inputs>> table or >>inputs loop_vars>> table or >>loop_vars ;
+].
 
-: of_body (#*\) >>body ;
+class [ ::claw.do_loop :: new (#*\) >>body ; ].
+class [ ::claw.do_step_loop :: new (#*\) >>body ; ].
+class [ ::claw.do_while_loop :: new (#**\) >>body >>cond ; ].
 
-"do_loop" @of_body clawss
-"do_step_loop" @of_body clawss
-"do_while_loop" : (#**\) >>body >>cond ; clawss
-"cond" : (#*\) >>clauses ; clawss
-"cond_clause" : (#**\) >>body >>pred ; clawss
-"each_loop" @of_body clawss
+class [ ::claw.cond :: new (#*\) >>clauses ; ].
+class [ ::claw.cond_claus :: new (#**\) >>body >>pred ; ].
+class [ ::claw.each_loop :: new (#*\) >>body ; ].
+class [ ::claw.body 
+:: new (#*\) >>_items ;
+:: compile ( # item -- ) _items>> [ , ] ;
+:: __tostring ( # -- s ) t[ "{{ " , _items>> each , " " , for #pop " }}" , ]s ;
+:: __each ( # -- * ) _items>> iter.each(*\*) ;
+].
 
-"body" : (#*\) >>_items ; clawss
-: me.compile ( # item -- ) _items>> [ , ] ;
-: me.__tostring ( # -- s ) t[ "{{ " , _items>> each , " " , for #pop " }}" , ]s ;
-: me.__each ( # -- * ) _items>> iter.each(*\*) ;
+class [ ::claw.unresolved
+:: new (#*\) >>tok ;
+:: __tostring (#\*) "%[" tok>> .. "]" .. ;
+].
 
-"unresolved" : (#*\) >>tok ; clawss 
-: me.__tostring (#\*) "%[" tok>> .. "]" .. ;
-Object :extend(\*) { anon }
-: anon.__tostring ( # -- s ) "anon-fn"  ;
+class [ ::claw.it_fn :: new (#*\) >>name ; :: __tostring (#\*) "it-fn" ; ].
+class [ ::anon :: __tostring ( # -- s ) "anon-fn"  ; ]
 claw "anon_fn" anon(\*) put
 
 
