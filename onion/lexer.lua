@@ -104,7 +104,7 @@ local function matcher(of)
 	end
 end
 
-Lex.tok = f'(s, match) -> s._toks[s.idx]'
+Lex.tok = f'(s) -> s._toks[s.idx]'
 Lex.is = f'(s, match) -> s:tok() == match'
 Lex.next = f'(s) s.idx+=1'
 Lex.at = f'(s,idx) -> s._toks[s.idx+idx]'

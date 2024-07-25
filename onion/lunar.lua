@@ -132,7 +132,7 @@ function molecules.new_table_it:to_lua(out)
 end
 
 function molecules.name_it:to_lua(out)
-    if not self.to:find(".") then
+    if not self.to:get().name:find(".") then
         out:write("local ")
     end
     out:echo(self.to)
