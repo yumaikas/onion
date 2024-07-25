@@ -26,7 +26,9 @@ function iter.f(code)
     :gsub("([%w%.]+):&([%w%.]+)", "%1 = %1 and %2")
 
     local val, msg = load(lua)
-    if not val then print(lua) end
+    if not val then print(lua) 
+        error(msg, 2)
+    end
     return assert(val, msg)()
 end
 

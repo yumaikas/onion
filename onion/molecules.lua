@@ -28,6 +28,7 @@ function mol(name, new, tostr)
     last = e
 end
 
+mol('behaves', '(s,k,like) s.key=k s.like=like ', '(s)-> "( "..s.key.." behaves like "..s.like.. " )"')
 mol('binop', '(s,op) s.op=op', [[
     (s) 
         if s.a and s.b then

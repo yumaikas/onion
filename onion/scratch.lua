@@ -14,6 +14,7 @@ local BaseEnv = require("basenv")
 local LuaOutput = require("lunar")
 local seam = require("seam")
 local claw = require("claw") 
+local molecules = require("molecules")
 local iter = require("iter")
 local f = iter.f
 require("check_stack")
@@ -169,6 +170,11 @@ function parse.of_chunk(t, end_, end_name)
                 body:compile(claw.if_(t_body))
             end
             t:next()
+        elseif t:is("behaves") then
+            t:next()
+            local key = t:tok() t:next()
+            local behavoior = t:tok() t:next()
+            body:compile(molecules.behaves(key, behavoior))
         elseif t:is(":") or t:is("::") then
             local is_it_fn = t:is("::")
             t:next()

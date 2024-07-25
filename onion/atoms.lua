@@ -1,13 +1,10 @@
 local Object = require("classic")
-local Atom = Object:extend()
 local iter = require("iter")
 local f = iter.f
 local eff = require('eff')
-Atom.__tostring = f'() -> "Atom"'
 local atoms = {}
 
 local record = require("record")
-local Object = require("classic")
 local last = nil
 local function e(i,o) last.eff = eff.n(i, o) end
 local function atom(name, ...) 

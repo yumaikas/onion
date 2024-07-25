@@ -32,7 +32,7 @@ local call_eff = {}
 function call_eff.is(word) return word:find("([^(]*)%(#?%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
     local _,_, called, ins, outs = word:find("([^(]*)%((#?%**)\\?(%**)%)$")
-    trace:pp{called,ins,outs}
+    -- trace:pp{"KERY", called,ins,outs}
     if ins then
         return called, iter.chars(ins), iter.chars(outs or "") 
     else
@@ -42,6 +42,7 @@ function call_eff.parse(word)
 end
 
 function claw.body:resolve(env)
+    local to_remove = {}
     for idx, node in ipairs(self._items) do
         function map(to) self._items[idx] = to end
         if instanceof(node, claw.unresolved) then
@@ -115,6 +116,18 @@ function claw.body:resolve(env)
             node:resolve(env)
             trace("RESOLVED: "..tostring(node))
         end
+    end
+end
+
+function molecules.behaves:resolve(env) 
+    self.eff = eff.n(0,0)
+    if call_eff.is(self.like) then
+        _, ins, outs = call_eff.parse(self.like)
+        env:put(self.key, claw.func(self.key, ins, outs, claw.body()))
+    elseif val.like == "@" then
+        env:put(self.key, atoms.var(self.key))
+    else
+        error("Unrecognized behavior: "..self.like) 
     end
 end
 

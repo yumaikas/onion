@@ -154,6 +154,8 @@ function molecules.new_table_it:stitch(stack, it_stack)
     it_stack:push(self.var)
 end
 
+function molecules.behaves:stitch(stack, it_stack) self.no_out = true end
+
 -- call stitches
 function molecules.call:stitch(stack, it_stack)
     trace:pp{"HORKY", self, stack}

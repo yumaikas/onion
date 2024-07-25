@@ -1,5 +1,6 @@
 local seam = require("seam") -- TODO pull seam's stack out into it's own module
 local pp = require("pprint")
+local iter = require("iter")
 
 local log = seam.stack:extend()
 local enabled = false
