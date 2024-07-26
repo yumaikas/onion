@@ -161,7 +161,7 @@ function parse.of_chunk(t, end_, end_name)
 
         if t:is("if") then
             t:next()
-            local t_body, tail = parse.of_chunk(t, {"else", "then"}, "else/then")
+            local t_body, tail = parse.of_chunk(t, {"else", "then"}, "else/then in "..trace:peek())
             if tail == "else" then
                 t:next()
                 f_body = parse.of_chunk(t, "then", "then")
@@ -179,6 +179,7 @@ function parse.of_chunk(t, end_, end_name)
             local is_it_fn = t:is("::")
             t:next()
             local name = cond(t:any_of{"(", "{"} or t:can(short_eff.is), claw.anon_fn, t:tok())
+            trace:push(tostring(name))
             if is_it_fn and name == claw.anon_fn then error("An :: function defintion cannot be anonymous") end
             if is_it_fn then name = claw.it_fn(name) end
             if name ~= claw.anon_fn then t:next() end
@@ -206,11 +207,12 @@ function parse.of_chunk(t, end_, end_name)
             else
                 error("Word def should have stack effect!")
             end
-            fn_body = parse.of_chunk(t, ";", "end-of-word")
+            fn_body = parse.of_chunk(t, ";", "end of "..tostring(name))
             local fn = claw.func(name, inputs, outputs, fn_body)
             fn.input_assigns = input_assigns
             body:compile(fn)
             t:next()
+            trace:pop()
         elseif t:is("do") then
             t:next()
             local loop_body = parse.of_chunk(t, "loop", "do loop")
@@ -230,7 +232,7 @@ function parse.of_chunk(t, end_, end_name)
             body:compile(claw.do_while_loop(loop_pred, loop_body))
         elseif t:is("each") then
             t:next()
-            local loop_body = parse.of_chunk(t, "for", "each")
+            local loop_body = parse.of_chunk(t, "for", "for")
             body:compile(claw.each_loop(loop_body))
             t:next()
         elseif t:can(iter_eff.is) then
@@ -257,6 +259,7 @@ end
 
 function onion.compile(code)
     trace:push("TOPLEVEL")
+    trace:enable()
     local toks = Lex(code)
     local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
     local env = BaseEnv()

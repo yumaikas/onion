@@ -2,12 +2,10 @@ local resolve = require("resolve")
 local Env = resolve.Env
 local atoms = require("atoms")
 local pp = require("pprint")
-local record = require("record")
 local iter = require("iter")
-local claw = require("claw")
-local Object = require("classic")
-local f, w, getter = iter.f, iter.w, iter.getter
+local w = iter.w
 
+local claw = require("claw")
 local molecules = require("molecules")
 
 local function curry(f, ...) 

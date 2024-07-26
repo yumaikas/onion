@@ -85,7 +85,8 @@ function claw.body:to_lua(out)
 end
 
 function mangle_name(n)
-    n = n:gsub("[?#/\\%,!+<>*-]", {
+    n = n:gsub("[?#/\\%,!+<>=*-]", {
+        ['='] = '_equal_',
         ['+'] = "_plus_", 
         ['<'] = "_lt_",
         ['*'] = "_mult_",
