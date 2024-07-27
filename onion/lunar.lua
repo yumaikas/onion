@@ -358,9 +358,11 @@ function claw.if_:to_lua(out)
     out:echo(self.when_true)
     if #self.out_vars > 0 then 
         for idx, o in ipairs(self.out_vars) do
+            out:write(" ")
             out:echo(o)
             out:write(" = ")
             out:echo(self.out_vals[idx])
+            out:write(" ")
         end
     end
     out:write(" end ")
@@ -381,13 +383,16 @@ function claw.ifelse:to_lua(out)
     out:echo(self.when_true)
     if #self.out_vars > 0 then 
         for idx, o in ipairs(self.out_vars) do
+            out:write(" ")
             out:echo(o) out:write(" = ") out:echo(self.t_rets[idx])
+            out:write(" ")
         end 
     end
     out:write(" else ")
     out:echo(self.when_false)
     if #self.out_vars > 0 then 
         for idx, o in ipairs(self.out_vars) do
+            out:write(" ")
             out:echo(o) out:write(" = ") out:echo(self.f_rets[idx])
             out:write(" ")
         end 

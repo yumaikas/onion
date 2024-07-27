@@ -338,7 +338,7 @@ function claw.ifelse:stitch(stack, it_stack)
     self.out_vars = {}
     for o in iter.each(self.t_rets) do
         local out_var = seam.ssa_var()
-        iter.shift(self.out_vars, out_var)
+        iter.push(self.out_vars, out_var)
         stack:push(seam.cell(out_var))
     end
 end
