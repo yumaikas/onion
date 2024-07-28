@@ -51,7 +51,7 @@
   : vaddxy { a b -- t } a .x b .x add a .y b .y add(**\*) xy_to_pt ; 
   : printall ( t -- ) each print(*) for ;
 
-  : NL ( -- ) print() ;
+: NL ( -- ) print() ;
  : tsum1 ( t -- sum ) 0 { s } each s + { s } for s ;
  : tsum2 (*\*) 0 { s } ipairs[*\_*] += s for s ;
  : tsum3 ( t -- sum ) 0 { s } ipairs(*\***) [***\_*] s + { s } for s ;

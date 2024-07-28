@@ -4,7 +4,7 @@
 
 \ Comments use `\` followed by a space
 
-\ -- values and variables
+\ -- Values and Variables
 \ ---------------------------------------------------------
 \ To add two numbers and print them
 1 2 + print(*) \ prints "3"
@@ -33,7 +33,7 @@
 io.read(\*) \ This leaves one output on the stack
 print(**)  \ this prints both of those stack values
 
-\ -- Onion word definitions
+\ -- Basic Onion word definitions
 \ ----------------------------------------------------------------
 \ A word definition in Onion can take a few different forms
 
@@ -56,10 +56,26 @@ print(**)  \ this prints both of those stack values
 \ If you're familiar with other stack languages, this is 
 \ mostly meant for when you'd have to do a lot of stack
 \ shuffling to express something. 
-\ Detail: This compiles to lua that
-\ directly uses the function parameters, there isn't
-\ a return stack involved
+\ This compiles to lua that directly uses the function parameters
+\ efficiency isn't a concern
 
+\ Finally, words aren't required to have a name
+: ( a b -- c ) + ; { var-add }
+\ This allows you do things like return a function from a word
+\ and word definitions -are- allowed to nest, unlike factor 
+\ or Forth
+: counter { init -- fn } : ( -- v ) init 1 + { init } init ; ;
+
+\ now ctr is a reference to a counter function that starts at 1
+1 counter { ctr } 
+\ Words usually have semantics based on their stack effect
+\ or being declared as a local variable
+\ "behaves" alllows you to assign new default semantics to a word
+behaves ctr (\*) 
+\ either via a short-stack effect, or using @ to tell Onion to 
+\ treat the word like a variable
+
+ctr ctr ctr print(***)  \ prints "1    2    3"
 
 \ -- Stack effect checking
 \ ----------------------------------------------------------------
@@ -74,7 +90,7 @@ print(**)  \ this prints both of those stack values
 \ so that it can emit "straight line" lua, aka lua that doesn't have
 \ a "stack" at runtime.
 
-\ -- Control flow
+\ -- Conditional statements
 \ ----------------------------------------------------------------
 \ This allows us to talk about control flow
 
@@ -94,13 +110,14 @@ print(**)  \ this prints both of those stack values
 4 dX 2 mod? if 1 + then \ This is valid
 4 dX 3 mod? if + then \ This is not, because + has an effect of (**\*)
 
-\ This is a generalization of if/else/then statements
+\ This is a specialization of if/else/then statements
 \ The rule for them is that the true and false arms 
 \ of the statement need to be the same overall effect on the stack
 4 dx 2 mod? if "even" else "odd" then print(*)
 
 \ This is why if statements without an else branch have to be balanced
-\ since the implicit "else" is not changing the tack
+\ since the implicit "else" is not changing the stack, so the stack
+\ needs to have the same size after
 
 \ Cond is the most general case of a conditional statement
 
@@ -109,7 +126,7 @@ cond
     \ For now, the predicate/condition clause can't take any inputs
     \ and must only output one value. 
     r 1 eq? -> "one" of
-    \ Meanwhile, every guarded clause needs to have the same stack effect
+    \ Meanwhile, every guarded clause needs to have the same stack effect, but can have 
     r 2 eq? -> "two" of
     r 3 eq? -> "three" of
     r 4 eq? -> "four" of
@@ -117,19 +134,89 @@ cond
     true -> @nil of
 end print(*)
 
+\ -- Working with tables
+
+table { t } \ Create an empty table
+t 1 >a \ Set a field in it
+t .a print(*) \ Get the field and use it
+
+"b" { k }
+t k 2 put \ Use a variable as the key, to set a table value like t[k] = 2
+t k get \ Or to get it out
 
 
+\ -- Loops
+\ ----------------------------------------------------------------
+
+\ Onion has a few different types of loops
+
+\ The most basic is a counted loop:
+10 1 do ", " .. io.write(*)  loop \ prints 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 
+
+\ You can count backwards by specifying a custom step
+1 10 -1 +do ", " .. io.write(*) loop \ prints 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 
+
+\ If you want a loop that has a condition, you can do it like so
+true { going } 
+do? going while "Keep going? (y/n): " print(*) io.read() "y" eq? { going } loop 
+
+\ Another counted loop example:
+\ table creates a new, empty table
+table { tbl }  
+10 1 do tbl swap table.insert(**) loop
+
+\ Then, there's your basic `each` loop, which is based on ipairs, but without the index
+\ it starts with `each` and ends with `for`
+\ each loops bodies are expected to have no outputs
+tbl each "," .. io.write(*) for \ prints 1,2,3,4,5,6,7,8,9,10,
+
+\ And, finally, a more general form that allows access to lua's full iterator protocol:
+tbl ipairs[*\_*] "," .. io.write(*) for \ prints 1,2,3,4,5,6,7,8,9,10,
+\ It uses square brackets instead of parens after a word, and compiles down
+\ to a for loop in lua. The inputs go into the iterator function, 
+\ and the outputs are fed to the loop body. An underscore can be used to 
+\ not pass an output to the loop body, since not all uses of a given iterator are interested
+\ in all of its per-iteration outputs
+
+\ -- "it" stack
+\ ----------------------------------------------------------------
+
+\ The "it" stack is a specialization of how Forth uses the return stack for data
+\ or how Factor uses a retain stack.
+
+\ First things first, to push a value onto the "it" stack, use `[`
+\ and use `]` to pop it off onto the value stack again
+table [ ] { tbl } 
+
+\ Due to Onion being compiled, functions you write that want to take an `it` parameter need to have 
+\ a # as part of their stack effect.
+\ You can also use # in a function call to indicate that it should take the current `it` value in parameter slot.
+: , (#*\) table.insert(#*) ;
+
+\ Additionally, Onion has some conveniences for working with tables on the `it` stack
+
+: pos ( # -- ) it .x it .y ;
+\ Can be shortened to this
+: pos ( # -- ) x>> y>> ; 
+
+: to-pos ( # x y -- ) it swap >y it swap >x ;
+\ can be shorted to
+: to-pos ( # x y -- ) >>y >>x ;
+
+\ Another example of the it stack
+: mov ( # x y -- ) y>> + >>y x>> + >>x ;
+
+\ There is a convinence word for making a new table, t[
+: <xy> ( x y -- t ) t[ to-pos ] ;
 
 
-
-
-
-
-
-
-
-
-
+\ Finally, there's a way to use this to more easily construct module-style tables
+\ ::name names the value on the top of the `it` stack, which allows `::` to
+\ define words that are inside that table
+t[ ::bubbles
+:: spawn (**\) bubbles [ t[ to-pos 0 >>t ] , ]. ;
+:: tic (\) bubbles each [ 0 -1 mov ++t ]. ;
+]. 
 
 
 

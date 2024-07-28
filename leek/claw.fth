@@ -52,7 +52,7 @@ class [ ::claw.unresolved
 ].
 
 class [ ::claw.it_fn :: new (#*\) >>name ; :: __tostring (#\*) "it-fn" ; ].
-class [ ::anon :: __tostring ( # -- s ) "anon-fn"  ; ]
+class [ ::anon :: __tostring ( # -- s ) "anon-fn"  ; ].
 claw "anon_fn" anon(\*) put
 
 
