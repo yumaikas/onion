@@ -124,7 +124,7 @@ function molecules.behaves:resolve(env)
     if call_eff.is(self.like) then
         _, ins, outs = call_eff.parse(self.like)
         env:put(self.key, claw.func(self.key, ins, outs, claw.body()))
-    elseif val.like == "@" then
+    elseif self.like == "@" then
         env:put(self.key, atoms.var(self.key))
     else
         error("Unrecognized behavior: "..self.like) 

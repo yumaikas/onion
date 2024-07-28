@@ -22,7 +22,7 @@ local function makeBaseEnv()
     for k, v in ops:gmatch("%((%S+) (%S+)%)")  do
         baseEnv:put(k, curry(molecules.binop, v))
     end
-    local assign_ops = [[(+= +)(-= -)(or= or)(and= and)(*= *)(div= /)(..= ..)]]
+    local assign_ops = [[(+= +)(-= -)(or= or)(and= and)(*= *)(div= /)(..= ..)(mod= %)]]
     for k, v in assign_ops:gmatch("%((%S+) (%S+)%)")  do
         baseEnv:put(k, curry(atoms.assign_op, v))
     end
