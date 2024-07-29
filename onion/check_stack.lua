@@ -44,7 +44,7 @@ end
 function claw.if_:stack_infer()
     local total_eff = Effect({'cond'}, {})
     local eff = self.when_true:stack_infer()
-    eff:assert_balanced()
+    eff:assert_balanced(tostring(trace))
     self.eff = total_eff..eff
     return self.eff
 end
@@ -81,7 +81,7 @@ function claw.iter:stack_infer()
     -- TODO-longterm: Figure out a way to make this 
     -- more flexible (aka, only require it to be balanced
     local comb_eff = loop_var_eff..body_eff
-    comb_eff:assert_matches_depths(0,0)
+    comb_eff:assert_matches_depths(0,0, tostring(trace))
     self.eff = total_eff
     return self.eff
 end
@@ -94,7 +94,7 @@ function claw.each_loop:stack_infer()
     local body_eff = self.body:stack_infer()
     trace("BODY_EFF", (body_eff or nil))
     local comb_eff = loop_var_eff..body_eff
-    comb_eff:assert_matches_depths(0,0)
+    comb_eff:assert_matches_depths(0,0, tostring(trace))
     self.eff = total_eff
     return self.eff
 end
@@ -106,7 +106,7 @@ end
 function claw.do_loop:stack_infer()
     local total_eff = Effect({'to','from'}, {})
     local body_eff = self.body:stack_infer()
-    body_eff:assert_matches_depths(1,0)
+    body_eff:assert_matches_depths(1,0, tostring(trace))
     self.eff = total_eff
     return self.eff
 end
@@ -114,7 +114,7 @@ end
 function claw.do_step_loop:stack_infer()
     local total_eff = Effect({'to', 'from', 'step'}, {})
     local body_eff = self.body:stack_infer()
-    body_eff:assert_matches_depths(1, 0)
+    body_eff:assert_matches_depths(1, 0, tostring(trace))
     self.eff = total_eff
     return self.eff
 end
@@ -122,9 +122,9 @@ end
 function claw.do_while_loop:stack_infer()
     local total_eff = Effect({},{})
     local cond_eff = self.cond:stack_infer()
-    cond_eff:assert_matches_depths(0,1)
+    cond_eff:assert_matches_depths(0,1, tostring(trace))
     local body_eff = self.body:stack_infer()
-    body_eff:assert_matches_depths(0,0)
+    body_eff:assert_matches_depths(0,0, trace:peek())
     self.eff = total_eff
     return self.eff
 end
@@ -133,12 +133,12 @@ function claw.cond:stack_infer()
     local total_eff = Effect({},{})
     local bi, bo
     for i in iter.each(self.clauses) do
-        pp(i)
+        -- pp(i)
         local cond_eff = i.pred:stack_infer()
-        cond_eff:assert_matches_depths(0,1)
+        cond_eff:assert_matches_depths(0,1, tostring(trace))
         local body_eff = i.body:stack_infer()
         if bi and bo then
-            body_eff:assert_matches_depths(bi, bo)
+            body_eff:assert_matches_depths(bi, bo, tostring(trace))
         else
             bi = #body_eff.in_eff
             bo = #body_eff.out_eff

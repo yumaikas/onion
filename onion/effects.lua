@@ -31,8 +31,8 @@ function Effect:assert_match(other, fn)
 	end
 end
 
-function Effect:assert_balanced()
-	return (#self.in_eff == #self.out_eff) or error("Unbalanced stack effect!")
+function Effect:assert_balanced(loc)
+	return (#self.in_eff == #self.out_eff) or error("Unbalanced stack effect in "..loc.."!")
 end
 
 function Effect:assert_matches_depths(i, o, fn)

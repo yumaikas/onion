@@ -93,7 +93,7 @@ local iter_eff = {}
 function iter_eff.is(word) 
     -- trace:enable()
     trace(word==Lex.EOF)
-    trace:pp(word)
+    --trace:pp(word)
     -- trace.disable()
     return (not not string.find(word, "[^[]*%[#?%**\\[*_]*%]$")) end
 function tests.iter_effs_parse()
@@ -267,7 +267,7 @@ function onion.compile(code)
     local it_stack = seam.stack('toplevel it')
     -- trace:enable()
     ast:stitch(stack, it_stack)
-    trace:pp(ast)
+    -- trace:pp(ast)
     --trace:disable()
     -- for a in iter.each(ast) do trace("AST", a) end
     local out = LuaOutput()

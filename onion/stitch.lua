@@ -147,7 +147,7 @@ end
 function molecules.name_it:stitch(stack, it_stack)
     self.from = it_stack:pop()
     self.to = seam.cell(seam.var(self.name))
-    trace:pp{"NAMEIT", self}
+    -- trace:pp{"NAMEIT", self}
     it_stack:push(self.to)
 end
 

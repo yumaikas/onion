@@ -472,6 +472,7 @@ function claw.cond:to_lua(out)
         end
     end
     for c in iter.each(self.clauses) do
+        -- out:comment(pp.pformat(self))
         if first then out:write(" if ") first = false else
             out:write(" elseif ")
         end
@@ -529,6 +530,6 @@ function seam.ssa_assign:to_lua(out)
 end
 
 function atoms.whitespace:to_lua(out) out:write(self.ws) end
-function claw.whitespace:to_lua(out) out:write(self.ws) end
+function claw.whitespace:to_lua(out) out:write(self.whitespace) end
 
 return LuaOutput
