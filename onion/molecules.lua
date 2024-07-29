@@ -71,7 +71,7 @@ s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()
 
 function molecules.call:init() 
     local ins = iter.filter(self.inputs, f'(i) -> i ~= "it" and i ~= "#"')
-    pp{"DERPY", self.name, ins}
+    -- pp{"DERPY", self.name, ins}
     self.eff = eff(ins, iter.copy(self.outputs))
 end
 
@@ -92,7 +92,7 @@ s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()
 
 function molecules.mcall:init() 
     local ins = iter.filter(self.inputs, f'(i) -> i ~= "it" and i ~= "#"')
-    pp{"DERPY", self.name, ins}
+    -- pp{"DERPY", self.name, ins}
     iter.shift(ins, 'obj')
     self.eff = eff(ins, iter.copy(self.outputs))
 end

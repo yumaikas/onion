@@ -6,8 +6,8 @@ package.path = "./onion/?.lua;"..package.path
 -- effects(ast) -> ast+(blocks & exprs) ! underflows (?)
 -- stitch(ast+(blocks & exprs))
 -- ssa allocate (ast + (blocks & exprs))
-
 local trace = require("trace")
+
 local Lex = require("lexer")
 local Env = require("resolve")
 local BaseEnv = require("basenv")
@@ -20,7 +20,6 @@ local f = iter.f
 require("check_stack")
 require("stitch")
 local tests = require("tests")
-local pp = require("pprint")
 local onion = {}
 
 local function matcher(of)
@@ -70,7 +69,7 @@ function call_eff.is(word) return word:find("([^(]+)%(%**\\?%**%)$") ~= nil end
 function call_eff.parse(word) 
     local _,_, called, ins, outs = word:find("([^(]+)%((%**)\\?(%**)%)$")
 
-    print("CALL_EFF_PARSE", word, word:find("([^(]+)%((%**)\\?(%**)%)$"))
+    trace("CALL_EFF_PARSE", word, word:find("([^(]+)%((%**)\\?(%**)%)$"))
 
     if ins then
         return called, #ins, #(outs or {})
@@ -92,10 +91,10 @@ end
 
 local iter_eff = {}
 function iter_eff.is(word) 
-    trace.enable()
+    -- trace:enable()
     trace(word==Lex.EOF)
     trace:pp(word)
-    trace.disable()
+    -- trace.disable()
     return (not not string.find(word, "[^[]*%[#?%**\\[*_]*%]$")) end
 function tests.iter_effs_parse()
     function t(a, b) assert(iter_eff.is(a), b) end
@@ -151,7 +150,7 @@ function parse.cond_body(t)
 end
 
 function parse.of_chunk(t, end_, end_name)
-    print("Parsing for "..(end_name or 'nil'))
+    trace("Parsing for "..(end_name or 'nil'))
     local is_end = matcher(end_)
     local body = claw.body()
     while t:tok() and not (t:tok() == Lex.EOF and end_ ~= Lex.EOF)  do
@@ -259,7 +258,6 @@ end
 
 function onion.compile(code)
     trace:push("TOPLEVEL")
-    trace:enable()
     local toks = Lex(code)
     local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
     local env = BaseEnv()
@@ -267,7 +265,10 @@ function onion.compile(code)
     ast:stack_infer()
     local stack = seam.stack('toplevel')
     local it_stack = seam.stack('toplevel it')
+    -- trace:enable()
     ast:stitch(stack, it_stack)
+    trace:pp(ast)
+    --trace:disable()
     -- for a in iter.each(ast) do trace("AST", a) end
     local out = LuaOutput()
     ast:to_lua(out)

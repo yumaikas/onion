@@ -38,13 +38,14 @@ seam.stack = seam.base:extend()
 function seam.stack:new(name)
     self.name = name
     self._items = {}
+    if self.init then self:init() end
 end
 
-seam.stack.push = f'(s, val) print("push", s.name, val) iter.push(s._items, val)'
+seam.stack.push = f'(s, val) --[[print("push", s.name, val)]] iter.push(s._items, val)'
 seam.stack.peek = f'(s) -> s._items[#s._items]'
-seam.stack.pop = f[[(s)
-    print("pop", s.name)
-  if #s._items > 0 then -> iter.pop(s._items) else error("Stack underflow!") end]]
+seam.stack.pop = f[=[(s)
+    --[[print("pop", s.name)]]
+  if #s._items > 0 then -> iter.pop(s._items) else error("Stack underflow!") end]=]
 seam.stack.__each = f'(s) -> iter.each(s._items)'
 seam.stack.__len = f'(s) -> #s._items'
 function seam.stack:__tostring()

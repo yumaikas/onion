@@ -18,7 +18,7 @@ end
 ]]
 
 function main()
-    print(io)
+    -- print(io)
 
     local argIdx = 1
     while argIdx <= #arg do

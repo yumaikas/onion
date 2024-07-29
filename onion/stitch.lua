@@ -130,6 +130,7 @@ end
 
 function molecules.pop_it:stitch(stack, it_stack)
     stack:push(it_stack:pop())
+    trace("POPOPOPIT", stack:peek())
     self.no_out = true
 end
 
@@ -146,7 +147,8 @@ end
 function molecules.name_it:stitch(stack, it_stack)
     self.from = it_stack:pop()
     self.to = seam.cell(seam.var(self.name))
-    it_stack:push(to)
+    trace:pp{"NAMEIT", self}
+    it_stack:push(self.to)
 end
 
 function molecules.new_table_it:stitch(stack, it_stack)
@@ -206,9 +208,10 @@ function claw.body:stitch(stack, it_stack)
     end
 end
 
-function claw.func:stitch(outer_stack, it_stack)
+function claw.func:stitch(outer_stack, outer_it_stack)
     trace:push(self.name)
     local stack = seam.stack(tostring(self.name) .. ' value')
+    local it_stack = seam.stack(tostring(self.name) .. ' it')
     -- trace.pp{"BITSCANNON", self.inputs, instanceof(self.inputs, claw.namelist)}
     if not self.input_assigns then
         local idx = 1
@@ -235,6 +238,10 @@ function claw.func:stitch(outer_stack, it_stack)
 
     if self.name == claw.anon_fn then
         outer_stack:push(seam.cell(self))
+    end
+    if type(self.name) == "string" and self.name:match("^]") then
+        -- THIS IS A HACK
+        outer_it_stack:pop()
     end
     trace:pop()
     self.no_out = self.name == claw.anon_fn

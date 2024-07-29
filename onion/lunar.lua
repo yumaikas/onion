@@ -41,8 +41,11 @@ function LuaOutput:comment(...)
 end
 
 function LuaOutput:echo(val)
-    if val.to_lua then
+    trace(val or "nil")
+    if val and val.to_lua then
         val:to_lua(self)
+    elseif not val then
+        self:comment("unexpectedly nil")
     elseif type(val) == "string" then
         self:write(val)
     else

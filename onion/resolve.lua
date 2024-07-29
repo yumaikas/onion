@@ -1,6 +1,6 @@
 local iter = require("iter")
 local record = require("record")
-local eff=require("eff")
+local eff = require("eff")
 local molecules = require("molecules")
 local trace = require("trace")
 local Object = require("classic")
@@ -91,7 +91,9 @@ function claw.body:resolve(env)
                         outs
                     ))
                 end
-            elseif node.tok:match("^::") then
+            elseif node.tok:match("^::") and node.tok ~= "::" then
+                
+                trace("rename tok: "..node.tok)
                 local it_name = node.tok:sub(3)
                 env:put(claw.it_fn, it_name)
                 env:put(it_name, atoms.var(it_name))
