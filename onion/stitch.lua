@@ -251,9 +251,9 @@ function claw.iter:stitch(stack, it_stack)
     self.input_cells = {}
     for i in iter.backwards(self.inputs) do
         if i == '#' then
-            iter.push(self.input_cells, it_stack:peek())
+            iter.shift(self.input_cells, it_stack:peek())
         else
-            iter.push(self.input_cells, stack:pop())
+            iter.shift(self.input_cells, stack:pop())
         end
     end
 

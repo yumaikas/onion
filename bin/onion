@@ -1,0 +1,3197 @@
+#!/usr/bin/env lua
+
+package.preload['atoms'] = package.preload['atoms'] or function(...)
+
+local Object = require("classic")
+local iter = require("iter")
+local f = iter.f
+local eff = require('eff')
+local atoms = {}
+
+local record = require("record")
+local last = nil
+local function e(i,o) last.eff = eff.n(i, o) end
+local function atom(name, ...) 
+    last = record(name, Object, ...) 
+    atoms[name] = last
+end
+
+atom("var", "name") e(0, 1)
+atoms.var.__tostring = f'(s) -> "$["..tostring(s.name).."]"'
+atom("number", "val") e(0,1)
+atom("lit", "val") e(0, 1)
+atoms.number.__tostring = f'(s) -> "["..tostring(s.val).."]"'
+atom("string", "val") e(0,1)
+atom("bool", "val") e(0,1)
+atom("whitespace", "ws") e(0,0)
+atoms.whitespace.__tostring = f'(s) -> "ws("..s.ws:gsub("[\\r\\n]", {["\\r"] = "\\\\r", ["\\n"] = "\\\\n"})..")"'
+atom("assign_op", "op") e(1,1)
+
+return atoms
+end
+
+
+package.preload['basenv'] = package.preload['basenv'] or function(...)
+
+local resolve = require("resolve")
+local Env = resolve.Env
+local atoms = require("atoms")
+local pp = require("pprint")
+local iter = require("iter")
+local w = iter.w
+
+local claw = require("claw")
+local molecules = require("molecules")
+
+local function curry(f, ...) 
+    local args = {...}
+    return function()
+        return f(table.unpack(args)) 
+    end
+end 
+
+local function makeBaseEnv() 
+    local baseEnv = Env()
+
+    local ops = [[(+ +)(- -)(* *)(> >)(< <)(div /)(idiv //)(mod %)(eq? ==)(neq? ~=)(.. ..)(or or)(and and)(<= <=)(>= >=)]]
+    for k, v in ops:gmatch("%((%S+) (%S+)%)")  do
+        baseEnv:put(k, curry(molecules.binop, v))
+    end
+    local assign_ops = [[(+= +)(-= -)(or= or)(and= and)(*= *)(div= /)(..= ..)(mod= %)]]
+    for k, v in assign_ops:gmatch("%((%S+) (%S+)%)")  do
+        baseEnv:put(k, curry(atoms.assign_op, v))
+    end
+
+    baseEnv:put("dup", molecules.shuffle('dup', w'a', w'a a'))
+    baseEnv:put("swap", molecules.shuffle('swap', w'a b', w'b a'))
+    baseEnv:put("nip", molecules.shuffle('nip', w'a b', w'b'))
+    baseEnv:put("drop", molecules.shuffle('drop', w'a', w''))
+    baseEnv:put("true", atoms.bool(true))
+    baseEnv:put("false", atoms.bool(false))
+    function ctor(k, v)
+        baseEnv:put(k, function() return v() end)
+    end
+    ctor("table", molecules.table_lit)
+    ctor("get",  molecules.get)
+    ctor("put", molecules.put)
+    ctor("len", molecules.len)
+    ctor("not", molecules._not)
+    ctor("t[", molecules.new_table_it)
+    ctor("[", molecules.push_it)
+    ctor("]", molecules.pop_it)
+    ctor("].", molecules.drop_it)
+    ctor("it", molecules.ref_it)
+
+    return baseEnv
+end
+
+
+return makeBaseEnv
+end
+
+
+package.preload['check_stack'] = package.preload['check_stack'] or function(...)
+
+local claw = require("claw")
+local atoms = require("atoms")
+local molecules = require("molecules")
+local Effect = require("effects")
+local iter = require("iter")
+local f = iter.f
+local pp = require("pprint")
+local eff = require("eff")
+local trace = require("trace")
+
+function claw.whitespace:stack_infer() 
+    self.eff = Effect({}, {})
+    return self.eff
+end
+
+function claw.body:stack_infer()
+    local total_body_eff = Effect({}, {})
+    for c in iter.each(self._items) do
+        trace(c)
+        if c.eff then
+            trace("EFF", total_body_eff, c.eff, c, total_body_eff..c.eff)
+            total_body_eff = total_body_eff..c.eff
+        elseif c.stack_infer then
+            local c_eff = c:stack_infer()
+            trace("INFER", c_eff)
+            total_body_eff = total_body_eff..c_eff
+        else
+            trace:error("Unable to infer stack effect of "..tostring(c))
+        end
+    end
+    self.eff = total_body_eff
+    trace(self.eff)
+    return self.eff
+end
+
+function claw.ifelse:stack_infer()
+    local total_eff = Effect({'cond'}, {})
+    local true_eff = self.when_true:stack_infer()
+    local false_eff = self.when_false:stack_infer()
+    true_eff:assert_match(false_eff, 'ifelse')
+    self.eff = total_eff..true_eff
+    return self.eff
+end
+function claw.if_:stack_infer()
+    local total_eff = Effect({'cond'}, {})
+    local eff = self.when_true:stack_infer()
+    eff:assert_balanced(tostring(trace))
+    self.eff = total_eff..eff
+    return self.eff
+end
+
+function claw.assign_many:stack_infer()
+    self.eff = Effect(iter.copy(self.varnames), {})
+    return self.eff
+end
+
+function claw.func:stack_infer()
+    trace:push(self.name)
+    -- internal eff
+    local body_eff = self.body:stack_infer()
+    local inputs = iter.filter(self.inputs, f'(i) -> i ~= "#" and i ~= "it"')
+    if self.input_assigns then
+        body_eff:assert_matches_depths(0, #self.outputs, tostring(trace))
+    else
+        body_eff:assert_matches_depths(#inputs, #self.outputs, tostring(trace))
+    end
+    -- External eff 
+    if self.name == claw.anon_fn then
+        self.eff = Effect({}, {'fn'})
+    else
+        self.eff = Effect({},{})
+    end
+    trace:pop()
+    return self.eff
+end
+
+function claw.iter:stack_infer()
+    local total_eff = Effect(iter.copy(self.inputs), {})
+    local loop_var_eff = Effect({}, iter.filter(self.loop_vars, f'(s) -> s ~= "_"'))
+    local body_eff = self.body:stack_infer()
+    -- TODO-longterm: Figure out a way to make this 
+    -- more flexible (aka, only require it to be balanced
+    local comb_eff = loop_var_eff..body_eff
+    comb_eff:assert_matches_depths(0,0, tostring(trace))
+    self.eff = total_eff
+    return self.eff
+end
+
+function claw.each_loop:stack_infer()
+    trace(tostring(self))
+    local total_eff = Effect({'t'}, {})
+    local loop_var_eff = Effect({}, {'item'})
+    trace("EACH_BODY", self.body)
+    local body_eff = self.body:stack_infer()
+    trace("BODY_EFF", (body_eff or nil))
+    local comb_eff = loop_var_eff..body_eff
+    comb_eff:assert_matches_depths(0,0, tostring(trace))
+    self.eff = total_eff
+    return self.eff
+end
+
+function molecules.call:stack_infer()
+    --TODO: RESUME
+end
+
+function claw.do_loop:stack_infer()
+    local total_eff = Effect({'to','from'}, {})
+    local body_eff = self.body:stack_infer()
+    body_eff:assert_matches_depths(1,0, tostring(trace))
+    self.eff = total_eff
+    return self.eff
+end
+
+function claw.do_step_loop:stack_infer()
+    local total_eff = Effect({'to', 'from', 'step'}, {})
+    local body_eff = self.body:stack_infer()
+    body_eff:assert_matches_depths(1, 0, tostring(trace))
+    self.eff = total_eff
+    return self.eff
+end
+
+function claw.do_while_loop:stack_infer()
+    local total_eff = Effect({},{})
+    local cond_eff = self.cond:stack_infer()
+    cond_eff:assert_matches_depths(0,1, tostring(trace))
+    local body_eff = self.body:stack_infer()
+    body_eff:assert_matches_depths(0,0, trace:peek())
+    self.eff = total_eff
+    return self.eff
+end
+
+function claw.cond:stack_infer()
+    local total_eff = Effect({},{})
+    local bi, bo
+    for i in iter.each(self.clauses) do
+        -- pp(i)
+        local cond_eff = i.pred:stack_infer()
+        cond_eff:assert_matches_depths(0,1, tostring(trace))
+        local body_eff = i.body:stack_infer()
+        if bi and bo then
+            body_eff:assert_matches_depths(bi, bo, tostring(trace))
+        else
+            bi = #body_eff.in_eff
+            bo = #body_eff.out_eff
+        end
+    end
+    self.eff = eff.n(bi, bo)
+    return self.eff
+end
+
+end
+
+
+package.preload['classic'] = package.preload['classic'] or function(...)
+
+--
+-- classic
+--
+-- Copyright (c) 2014, rxi
+--
+-- This module is free software; you can redistribute it and/or modify it under
+-- the terms of the MIT license. See LICENSE for details.
+--
+
+
+local Object = {}
+Object.__index = Object
+
+
+function Object:new()
+end
+
+
+function Object:extend()
+  local cls = {}
+  for k, v in pairs(self) do
+    if k:find("__") == 1 then
+      cls[k] = v
+    end
+  end
+  cls.__index = cls
+  cls.super = self
+  setmetatable(cls, self)
+  return cls
+end
+
+
+function Object:implement(...)
+  for _, cls in pairs({...}) do
+    for k, v in pairs(cls) do
+      if self[k] == nil and type(v) == "function" then
+        self[k] = v
+      end
+    end
+  end
+end
+
+
+function Object:is(T)
+  local mt = getmetatable(self)
+  while mt do
+    if mt == T then
+      return true
+    end
+    mt = getmetatable(mt)
+  end
+  return false
+end
+
+function instanceof(obj, T)
+  local mt = getmetatable(obj)
+  while mt do
+    if mt == T then
+      return true
+    end
+    mt = getmetatable(mt)
+  end
+  return false
+end
+
+
+function Object:__tostring()
+  return "Object"
+end
+
+
+function Object:__call(...)
+  local obj = setmetatable({}, self)
+  obj:new(...)
+  return obj
+end
+
+function Object:of(tbl)
+    return setmetatable(tbl, self)
+end
+
+
+return Object
+end
+
+
+package.preload['claw'] = package.preload['claw'] or function(...)
+
+local f = require("iter").f
+local record = require("record")
+local Object = require("classic")
+
+local claw = {}
+
+claw.parse = Object:extend()
+
+local last
+function rec(name, ...) 
+    local cls = record(name, claw.parse, ...)
+    claw[name] = cls
+    last=cls
+    return cls
+end
+
+
+claw.namelist = Object:extend()
+claw.namelist.new = f'(s, from) s._items = from'
+claw.namelist.__push = f'(s, item) iter.push(s._items, item)'
+claw.namelist.__len = f'(s) -> #s._items'
+claw.namelist.__tostring = f[[(s) -> "n:{ "..iter.strmap(s._items, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
+claw.namelist.items = f'(s) -> s._items'
+claw.namelist.__each = f'(s) -> iter.each(s:items())'
+
+rec("ifelse", "when_true", "when_false")  --
+rec("if_", "when_true") --
+rec("whitespace", "whitespace") --
+rec("assign_many", "varnames")  --
+claw.assign_many.__tostring = f[[(s) -> "::{ "..iter.strmap(s.varnames, @(i) -> "\'"..i.."\'" ;, ", ").." }"]]
+
+rec("func", "name", "inputs", "outputs", "body") --
+rec("iter", "word", "inputs", "loop_vars", "body") --
+rec("do_loop", "body") --
+rec("do_step_loop", "body") --
+rec("do_while_loop", "cond", "body") --
+rec("cond", "clauses") --
+rec("cond_clause", "pred", "body") --
+rec("each_loop", "body") --
+
+
+function claw.iter:init()
+    self.inputs = self.inputs or {}
+    self.loop_vars = self.loop_vars or {}
+end
+
+claw.body = Object:extend()
+claw.body.new = f'(s) s._items = {}'
+claw.body.compile = f'(s, item) iter.push(s._items, item)' 
+claw.body.__tostring = f'(s) -> "{{ "..iter.str(s._items, " ").." }}"'
+claw.body.__each = f'(s) -> iter.each(s._items)'
+
+rec("unresolved", "tok") 
+claw.unresolved.__tostring = f'(s) -> "%["..s.tok.."]"'
+
+local anon = Object:extend()
+anon.__tostring = f'(s) -> "anon-fn"'
+local it_fn = Object:extend()
+it_fn.new = f'(s, name) s.name=name'
+it_fn.__tostring = f'(s) -> "it-fn"'
+
+claw.anon_fn = anon()
+claw.it_fn = it_fn
+
+return claw
+
+
+end
+
+
+package.preload['effects'] = package.preload['effects'] or function(...)
+
+local Object = require("classic")
+local iter = require("iter")
+
+local Effect = Object:extend()
+
+function Effect:__tostring()
+    return "[ " .. table.concat(self.in_eff, " ") .. " -- " .. table.concat(self.out_eff, " ") .. " ]"
+end
+
+local function mouse_notation(i,o)
+	return string.format("%s\\%s", string.rep("*", i), string.rep("*", o))
+end
+
+function Effect:new(in_eff, out_eff)
+    self.in_eff  = in_eff
+    self.out_eff = out_eff
+end
+
+function Effect:add_in(name)
+	table.insert(self.in_eff, name)
+end
+
+function Effect:add_out(name)
+	table.insert(self.out_eff, name)
+end
+
+function Effect:assert_match(other, fn)
+	if #self.in_eff == #other.in_eff and #self.out_eff == #other.out_eff then
+	else
+		error(string.format("Stack Effect Mismatch in %s! got %s expected %s", fn, self, other))
+	end
+end
+
+function Effect:assert_balanced(loc)
+	return (#self.in_eff == #self.out_eff) or error("Unbalanced stack effect in "..loc.."!")
+end
+
+function Effect:assert_matches_depths(i, o, fn)
+	return (#self.in_eff == i and #self.out_eff == o) 
+	or error(
+		string.format("Stack effect mismatch in %s! expected %s, got %s", 
+		fn, mouse_notation(i, o), self))
+end
+
+function Effect:__concat(other)
+    local out_height = #self.out_eff
+    local in_height = #other.in_eff
+    local flow = out_height - in_height
+    if flow < 0 then
+        local needed = {}
+        for i=1,math.abs(flow) do
+            needed[i] = other.in_eff[i]
+        end
+        for i=1,#self.in_eff do
+            needed[#needed+1] = self.in_eff[i]
+        end
+        return Effect(needed, iter.copy(other.out_eff))
+    elseif flow > 0 then
+        local leaves = {}
+        for i=1,math.abs(flow) do
+            leaves[#leaves+1] = self.out_eff[i]
+        end
+        for i=1,#other.out_eff do
+            leaves[#leaves+1] = other.out_eff[i]
+        end
+        return Effect(iter.copy(self.in_eff), leaves)
+    else
+        return Effect(iter.copy(self.in_eff), iter.copy(other.out_eff))
+    end
+end
+
+return Effect
+end
+
+
+package.preload['eff'] = package.preload['eff'] or function(...)
+
+local iter = require("iter")
+local Effect = require("effects")
+
+local function eff(_, i, o) return Effect(i, o) end
+
+local mod = {}
+function mod.n(n_i, n_o) return Effect(iter.rep('*', n_i), iter.rep('*', n_o)) end
+local meta = { __call = eff }
+setmetatable(mod, meta)
+
+return mod
+end
+
+
+package.preload['iter'] = package.preload['iter'] or function(...)
+
+local Object = require("classic")
+local iter = {}
+local pp = require("pprint")
+
+local Table = Object:extend()
+
+function Table.__add(t, v)
+    table.insert(t, v)
+    return t
+end
+
+function iter.t()
+    return Table()
+end
+
+function iter.w(items) return iter.collect(items:gmatch("%S+")) end
+
+function iter.f(code)
+    local lua = ("let iter = require('iter') -> @ "..code.." ;")
+    :gsub("->", "return")
+    :gsub("let", "local")
+    :gsub("@", "function")
+    :gsub(";", "end")
+    :gsub("([%w%.]+)([+-/%*])=([%w%.]+)", "%1 = %1 %2 %3")
+    :gsub("([%w%.]+):|([%w%.]+)", "%1 = %1 or %2")
+    :gsub("([%w%.]+):&([%w%.]+)", "%1 = %1 and %2")
+
+    local val, msg = load(lua)
+    if not val then print(lua) 
+        error(msg, 2)
+    end
+    return assert(val, msg)()
+end
+
+function iter.getter(prop) return iter.f("(s) -> s."..prop) end
+
+function iter.each(t)
+    if t.__each then return t:__each() end
+
+    local i = 1
+    return function()
+        local ret = t[i]
+        i = i + 1
+        return ret
+    end
+end
+
+function iter.pairwise(t)
+    local i = 1
+
+    if #t % 2 ~= 0 then
+        error("Cannot loop pairwise over uneven table")
+    end
+
+    return function()
+        if i > #t then
+            return nil
+        else
+            local ra, rb = t[i], t[i+1]
+            i = i + 2
+            return ra, rb
+        end
+    end
+
+end
+
+function iter.reverse(tab) 
+    for i = 1, math.floor(#tab/2), 1 do
+        tab[i], tab[#tab-i+1] = tab[#tab-i+1], tab[i]
+    end
+    return tab
+end
+-- from rxi/lume
+local ripairs_iter = function(t, i)
+  i = i - 1
+  local v = t[i]
+  if v ~= nil then
+    return i, v
+  end
+end
+
+-- from rxi/lume
+function iter.ripairs(t)
+  t = iter.copy(t)
+  return ripairs_iter, t, (#t + 1)
+end
+
+function iter.backwards(t)
+    local ret = iter.copy(t)
+    iter.reverse(t)
+    return iter.each(t)
+end
+
+function iter.copy(t)
+    return iter.collect(iter.each(t))
+end
+
+function iter.back(t) return t[#t] end
+
+function iter.last(t, n)
+    local i = #t-n
+    return function()
+        local ret = t[i]
+        i = i + 1
+        return ret
+    end
+end
+
+function iter.chars(str)
+    return iter.collect(str:gmatch("."))
+end
+
+
+function iter.collect(iter)
+    local ret = {}
+    for el in iter do
+        table.insert(ret, el)
+    end
+    return ret
+end
+
+function iter.into(t)
+    local obj = {}
+    function obj:collect(iter)
+        for el in iter do
+            table.insert(t, el)
+        end
+        return t
+    end
+    return obj
+end
+
+function iter.of_keys(t, ...)
+    pp({t, ...})
+    local ret = {}
+    for k in iter.each({...}) do
+        ret[k] = t[k]
+    end
+    return ret
+end
+
+function iter.has_value(t, v)
+    for _, iv in ipairs(t) do
+        if iv == v then return true end
+    end
+    return false
+end
+
+function iter.map(t, fn)
+    local ret = {}
+    for el in iter.each(t) do
+        ret[#ret+1] = fn(el)
+    end
+    return ret
+end
+
+function iter.str(t, sep)
+    return table.concat(iter.map(t, tostring), sep or "")
+end
+
+local function compn(...)
+    local fns = {...}
+    return function(...)
+        local args = {...}
+        for _,f in ipairs(fns) do
+            args = table.pack(f(table.unpack(args)))
+        end
+        return table.unpack(args)
+    end
+end
+
+local function comp(a, b)
+    return function(...)
+        return b(a(...))
+    end
+end
+
+function iter.strmap(t, fn, sep)
+    return table.concat(iter.map(t, comp(fn, tostring)), sep or "")
+end
+
+function iter.push(t, ...)
+    for i in iter.each({...}) do
+        t[#t+1] = i
+    end
+end
+
+function iter.shift(t, val)
+    table.insert(t, 1, val)
+end
+
+function iter.pop(t)
+    return table.remove(t)
+end
+
+function iter.from_back(t, i)
+    return #t - (i - 1)
+end
+
+function iter.filter(t, pred)
+    local ret = {}
+    for v in iter.each(t) do
+        if pred(v) then
+            ret[#ret+1] = v
+        end
+    end
+    return ret
+end
+
+function iter.find(t, pred)
+    for v in iter.each(t) do
+        if pred(v) then return v end
+    end
+    return nil
+end
+
+function iter.split(t, on) 
+    local ret = {{}}
+    for v in iter.each(t) do
+        if v == on then 
+            iter.push(ret, {}) 
+        else
+            iter.push(ret[#ret], v)
+        end
+    end
+    return ret
+end
+
+function iter.rep(el, n)
+    local ret = {}
+    for i=1,n do
+        iter.push(ret, el)
+    end
+    return ret
+end
+
+
+return iter
+end
+
+
+package.preload['lexer'] = package.preload['lexer'] or function(...)
+
+local iter = require("iter")
+local f = iter.f
+local record = require("record")
+local Object = require("classic")
+local pp = require("pprint")
+
+
+local Lex = record("lex", Object, "input")
+function Lex:init()
+    self.idx = 1
+    self._toks = lex(self.input)
+    self.input = nil
+end
+
+function Lex:__tostring1()
+    pp(self)
+    return nil
+end
+function Lex:__tostring()
+    return string.format("lex(idx = %d, toks=%s)", 
+    self.idx, 
+        iter.strmap(self._toks, f'(s) -> "["..tostring(s).."]"', " "))
+end
+
+function include_resolve(name)
+    return package.searchpath(name, "./?.fth;./?/init.fth;./?;") 
+end
+
+Lex.EOF = Object:extend()
+
+function Lex.EOF:__tostring() return "EOF" end
+
+function lex(input)
+    input = input:gsub("#include%(([^)]+)%)", function(thing) 
+        local f = io.open(include_resolve(thing), "r")
+        local ret = f:read("*a")
+        f:close()
+        return ret
+    end)
+
+    input = input.." "
+    local pos = 0
+    local tokens = {}
+    local tok, new_tok
+    local newpos
+    while pos < #input do
+        if not input:find("%S+", pos) then break end
+        _, _, new_tok, spacing, new_pos = input:find("(%S+)([\r\n\t ]*)()", pos)
+        pos = new_pos
+        if new_tok:find("^\\$") then 
+            _, _, pos = input:find("[^\r\n]+[\r\n]+()", pos)
+        elseif new_tok:find('^"') and new_tok:find('"$') and #new_tok > 1 then
+            iter.push(tokens, new_tok)
+        elseif new_tok:find('^"') then
+            local quote_scanning = true
+            local scan_tok
+            local scan_pos = pos
+            while quote_scanning do
+                if input:find('[^"]*"', scan_pos) then
+                    _, _, scan_tok, new_scan_pos = input:find('([^"]*")()', scan_pos)
+                    quote_scanning = scan_tok:find('\\"$') ~= nil
+                    -- new_tok = new_tok .. scan_tok
+                    scan_pos = new_scan_pos
+                else
+                    io.write("Seeking in ", input:sub(scan_pos))
+                    error("Unclosed quote in input!")
+                end
+            end
+            iter.push(tokens, input:sub(pos - #new_tok - 1, scan_pos-1))
+            pos = scan_pos
+        else
+            iter.push(tokens, new_tok)
+        end
+        if spacing:find("[\r\n]") then
+            iter.push(tokens, spacing)
+        end
+    end
+    iter.push(tokens, Lex.EOF)
+
+    return tokens
+end
+
+local function matcher(of)
+    function any_of(options)
+        for i, v in ipairs(options) do
+            options[i] = matcher(v)
+        end
+
+        return function(el)
+            for _, pred in ipairs(options) do
+                if pred(el) then
+                    return true
+                end
+            end
+            return false
+        end
+    end
+	if type(of) == "function" then
+        return of
+    elseif type(of) == "table" then
+        return any_of(of)
+	else
+	    return function(el) return el == of end
+	end
+end
+
+Lex.tok = f'(s) -> s._toks[s.idx]'
+Lex.is = f'(s, match) -> s:tok() == match'
+Lex.next = f'(s) s.idx+=1'
+Lex.at = f'(s,idx) -> s._toks[s.idx+idx]'
+Lex.can = f'(s,pred) -> pred(s:tok())'
+Lex.matches = f'(s,patt) -> s:tok():find(patt) ~= nil'
+Lex.any_of = f'(s, opts) -> iter.find(opts, @(i) -> s:is(i) ;) ~= nil'
+
+
+return Lex
+end
+
+
+package.preload['lunar'] = package.preload['lunar'] or function(...)
+
+local claw = require("claw")
+local atoms = require("atoms")
+local pp = require("pprint")
+local trace = require("trace")
+local molecules = require("molecules")
+local iter = require("iter")
+local Object = require("classic")
+local seam = require("seam")
+
+local LuaOutput = Object:extend()
+
+function LuaOutput:new()
+    self.line_padding = 0
+    self.ssa_idx = 1
+    self.out = {}
+end
+
+function LuaOutput:next_ssa()
+    local ret = "_"..self.ssa_idx
+    self.ssa_idx = self.ssa_idx + 1
+    return ret
+end
+
+function LuaOutput:indent(amt)
+    self.line_padding = self.line_padding + amt
+end
+
+function LuaOutput:dedent(atm)
+    self.line_padding = self.line_padding - amt
+end
+
+function LuaOutput:write(...)
+    iter.push(self.out, ...)
+end
+
+function LuaOutput:pop() iter.pop(self.out) end
+
+function LuaOutput:comment(...)
+    self:write("--[[", ...)
+    self:write("]]")
+end
+
+function LuaOutput:echo(val)
+    trace(val or "nil")
+    if val and val.to_lua then
+        val:to_lua(self)
+    elseif not val then
+        self:comment("unexpectedly nil")
+    elseif type(val) == "string" then
+        self:write(val)
+    else
+        self:comment(val, val.___name, type(val))
+    end
+end
+
+function LuaOutput:echo_list(list, sep)
+    for i in iter.each(list) do
+        self:echo(i)
+        self:write(sep)
+    end
+    if #list > 0 then iter.pop(self.out) end
+end
+
+function LuaOutput:write_list(list, sep)
+    for i in iter.each(list) do
+        self:write(i)
+        self:write(sep)
+    end
+    if #list > 0 then iter.pop(self.out) end
+end
+
+function LuaOutput:nl()
+    iter.push(self.out,"\n", string.rep(" ", self.line_padding))
+end
+
+function LuaOutput:str() return iter.str(self.out) end
+
+function claw.body:to_lua(out)
+    for node in iter.each(self) do 
+        if node.no_out then
+        elseif node.to_lua then
+            node:to_lua(out)
+            out:write(" ")
+        else
+            out:comment("Unsupported: ", tostring(node))
+        end
+    end
+end
+
+function mangle_name(n)
+    n = n:gsub("[?#/\\%,!+<>=*-]", {
+        ['='] = '_equal_',
+        ['+'] = "_plus_", 
+        ['<'] = "_lt_",
+        ['*'] = "_mult_",
+        ['>'] = "_gt_",
+        ['!'] = "_bang_",
+        [','] = "_comma_",
+        ['#'] = "_hash_",
+        ['/'] = "_slash_",
+        ['\\'] = '_backslash_',
+        ['?'] = '_question_',
+        ['-'] = '_'
+    })
+    if n:find("^[^_a-zA-Z]") then
+        n = "__" .. n
+    end
+    return n
+end
+
+function seam.cell:to_lua(out)
+    if self:get().to_lua then
+        self:get():to_lua(out)
+    else
+        out:echo(self:get())
+    end
+end
+
+function seam.lit:to_lua(out)
+    out:write(self.val)
+end
+
+function seam.strlit:to_lua(out) out:write((string.format("%q", self.val):gsub("\\\\", "\\"))) end
+
+function molecules.ref_it:to_lua(out) end
+function molecules.drop_it:to_lua(out) end
+
+function molecules.push_it:to_lua(out)
+    out:echo(self.var)
+end
+
+function molecules.new_table_it:to_lua(out)
+    out:write("local ") 
+    out:echo(self.var)
+    out:write(" = {} ")
+end
+
+function molecules.name_it:to_lua(out)
+    if not self.to:get().name:find(".") then
+        out:write("local ")
+    end
+    out:echo(self.to)
+    out:write(" = ")
+    out:echo(self.from)
+end
+
+function molecules.prop_set_it:to_lua(out)
+    out:echo(self.obj)
+    out:write(".", self.prop, " = ")
+    out:echo(self.val)
+end
+
+function molecules.len:to_lua(out)
+    out:write("#")
+    out:echo(self.obj)
+end
+
+function molecules._not:to_lua(out)
+    out:write("not ")
+    out:echo(self.obj)
+end
+
+function molecules.binop:to_lua(out)
+    out:write("(")
+    out:echo(self.a)
+    out:write(" ", self.op, " ")
+    out:echo(self.b)
+    out:write(")")
+end
+
+function molecules.call:to_lua(out)
+    -- out:comment("call!!", #self.outputs," ", #self.inputs)
+    if #self.outputs > 0 then
+        out:write(" local ") 
+        for o in iter.each(self.outputs) do
+            out:echo(o)
+            out:write(', ')
+        end
+        out:pop()
+        out:write(" = ")
+    end
+    out:write(mangle_name(self.name))
+    out:write("(")
+    if #self.inputs > 0 then
+        for i in iter.each(self.inputs) do
+            -- out:comment(i)
+            out:echo(i)
+            out:write(", ")
+        end
+        out:pop()
+    end
+    out:write(") ")
+end
+
+function molecules.mcall:to_lua(out)
+    -- out:comment("call!!", #self.outputs," ", #self.inputs)
+    if #self.outputs > 0 then
+        out:write(" local ") 
+        for o in iter.each(self.outputs) do
+            out:echo(o)
+            out:write(', ')
+        end
+        out:pop()
+        out:write(" = ")
+    end
+    out:echo(self.on)
+    out:write(":")
+    out:write(mangle_name(self.name))
+    out:write("(")
+    if #self.inputs > 0 then
+        for i in iter.each(self.inputs) do
+            out:echo(i)
+            out:write(", ")
+        end
+        out:pop()
+    end
+    out:write(") ")
+end
+
+function map_it_params(v)
+    if v == "#" then return "it" else return v end 
+end
+
+function params() 
+    local i = 0
+    return function(v) 
+        if v == "#" then 
+            return "it" 
+        else 
+            i = i + 1
+            return "p"..i
+        end 
+    end
+end
+
+function claw.assign_many:to_lua(out)
+    local new_vars = {}
+    local reassigns = {}
+    for i, v in ipairs(self.varnames) do
+        if self.is_new[i] then
+            iter.push(new_vars, {v, self.assigns[i]})
+        else
+            iter.push(reassigns, {v, self.assigns[i]})
+        end
+    end
+    if #new_vars > 0 then
+        out:write("local ") 
+        for v in iter.each(new_vars) do 
+            out:echo(mangle_name(v[1])) out:write(",")  
+        end
+        out:pop()
+        out:write(" = ")
+        for v in iter.each(new_vars) do out:echo(v[2]) out:write(", ") end
+        out:pop()
+    end
+    if #reassigns > 0 then
+        for v in iter.each(reassigns) do out:echo(mangle_name(v[1])) out:write(",")  end
+        out:pop()
+        out:write(" = ")
+        for v in iter.each(reassigns) do out:echo(v[2]) out:write(", ") end
+        out:pop()
+    end
+end
+
+function claw.func:to_lua(out)
+    if self.name == claw.anon_fn then
+        out:write(" ")
+    end
+    out:write("function ")
+    if self.name ~= claw.anon_fn then
+        out:write(mangle_name(self.name))
+    end
+    out:write("(" ) 
+    if not self.input_assigns then
+        out:write_list(iter.map(self.inputs, params()), ", ")
+    elseif self.input_assigns then
+        out:write_list(iter.map(self.inputs, map_it_params), ", ")
+    end
+    out:write(") ")
+    self.body:to_lua(out)
+    if #self.seam_outputs > 0 then
+        out:write(" return ")
+    end
+    if #self.seam_outputs > 0 then
+        for so in iter.each(self.seam_outputs) do
+            if so.to_lua then
+                so:to_lua(out)
+            else
+                out:comment(so)
+            end
+            out:write(", ")
+        end
+        out:pop()
+    end
+    out:write(" end ")
+end
+
+function molecules.assign_op:to_lua(out)
+    out:write(self.var, " = ", self.var, self.op)
+    out:echo(self.value)
+end
+
+function molecules.prop_get_it:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(mangle_name(self.prop))
+end
+
+function molecules.propget:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(mangle_name(self.prop))
+end
+
+function molecules.propset:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(mangle_name(self.prop), " = ")
+    out:echo(self.val)
+    out:write(" ")
+end
+
+function molecules.prop_set_it:to_lua(out)
+    out:echo(self.obj)
+    out:write(".")
+    out:write(mangle_name(self.prop), " = ")
+    out:echo(self.val)
+    out:write(" ")
+end
+
+
+function molecules.get:to_lua(out)
+    out:echo(self.obj)
+    out:write("[")
+    out:echo(self.key)
+    out:write("]")
+end
+
+function molecules.put:to_lua(out)
+    out:echo(self.obj)
+    out:write("[")
+    out:echo(self.key)
+    out:write("]")
+    out:write(" = ")
+    out:echo(self.val)
+end
+
+function molecules.table_lit:to_lua(out)
+    out:write("local ") 
+    out:echo(self.var)
+    out:write(" = {} ")
+end
+
+function claw.if_:to_lua(out)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:write(" local ") out:echo(o) out:write(" = ") out:echo(self.in_vals[idx])
+        end
+    end
+    out:write(" if ") out:echo(self.cond) out:write(" then ")
+    out:echo(self.when_true)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:write(" ")
+            out:echo(o)
+            out:write(" = ")
+            out:echo(self.out_vals[idx])
+            out:write(" ")
+        end
+    end
+    out:write(" end ")
+end
+
+function claw.ifelse:to_lua(out) 
+    if #self.out_vars > 0 then 
+        out:write(" local ") 
+        for idx, o in ipairs(self.out_vars) do
+            out:echo(o)
+            out:write(",")
+        end out:pop()
+    end
+
+    out:write(" if ")
+    out:echo(self.cond)
+    out:write(" then ")
+    out:echo(self.when_true)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:write(" ")
+            out:echo(o) out:write(" = ") out:echo(self.t_rets[idx])
+            out:write(" ")
+        end 
+    end
+    out:write(" else ")
+    out:echo(self.when_false)
+    if #self.out_vars > 0 then 
+        for idx, o in ipairs(self.out_vars) do
+            out:write(" ")
+            out:echo(o) out:write(" = ") out:echo(self.f_rets[idx])
+            out:write(" ")
+        end 
+    end
+    out:write(" end ")
+end
+
+function claw.each_loop:to_lua(out)
+    -- out:comment("each_loop")
+    -- out:comment(pp.pformat(self))
+    out:write(" for _, ")
+    out:echo(self.loop_var)
+    out:write(" in ipairs(")
+    out:echo(self.in_var)
+    out:write(") do ")
+    self.body:to_lua(out)
+    out:write(" end ")
+end
+
+function claw.iter:to_lua(out)
+    assert(#self.loop_vars > 0, "invalid loop_vars!")
+
+    out:write(" for ")
+    out:echo_list(self.loop_vars, ",")
+    out:write(" in ")
+    if #self.word > 0 then out:write(self.word, "(") end
+    out:echo_list(self.input_cells, ",")
+    if #self.word > 0 then out:write(")") end
+    out:write(" do ")
+    out:echo(self.body)
+    out:write(" end ")
+end
+
+function claw.do_loop:to_lua(out)
+    out:write(" for ")
+    out:echo(self.var)
+    out:write(" = ")
+    out:echo(self.from)
+    out:write(",")
+    out:echo(self.to)
+    out:write(" do ")
+    out:echo(self.body)
+    out:write(" end ")
+end
+
+function claw.do_step_loop:to_lua(out)
+    out:write(" for ")
+    out:echo(self.var)
+    out:write(" = ")
+    out:echo(self.from)
+    out:write(",")
+    out:echo(self.to)
+    out:write(",")
+    out:echo(self.step)
+    out:write(" do ")
+    out:echo(self.body)
+    out:write(" end ")
+end
+
+function claw.do_while_loop:to_lua(out)
+    out:write(" while ")
+    out:echo(self.cond_val)
+    out:write(" do ")
+    out:echo(self.body)
+    out:write(" end ")
+end
+
+function claw.cond:to_lua(out)
+    local first = true
+    if #self.out_vars > 0 then
+        out:write(" local ")
+        for ov in iter.each(self.out_vars) do
+            out:echo(ov)
+        end
+    end
+    for c in iter.each(self.clauses) do
+        -- out:comment(pp.pformat(self))
+        if first then out:write(" if ") first = false else
+            out:write(" elseif ")
+        end
+        if c.pre then out:echo(c.pre) end
+        out:echo(c.pred.cond_expr)
+        out:write(" then ")
+        out:echo(c.body)
+        for idx, ov in ipairs(c.out_vars) do
+            out:echo(self.out_vars[idx])
+            out:write(" = ")
+            out:echo(ov)
+            out:write(" ")
+        end
+        if c.post then out:echo(c.post) end
+    end
+    out:echo(" end ")
+end
+
+function seam.var:to_lua(out) 
+    out:write(mangle_name(self.name))
+end
+
+function atoms.number:to_lua(out)
+    out:write(self.val)
+end
+
+function atoms.lit:to_lua(out)
+    out:write(self.val)
+end
+
+function atoms.var:to_lua(out)
+    out:write(mangle_name(self.name))
+end
+
+function seam.var:to_lua(out)
+    out:write(mangle_name(self.name))
+end
+
+function seam.ssa_var:to_lua(out)
+    if not self.varname then
+        self.varname = out:next_ssa()
+    end
+    out:write(self.varname)
+end
+
+function seam.ssa_assign:to_lua(out)
+    if not self.varname then
+        self.varname = out:next_ssa()
+        out:write(" local ", self.varname, " = ") 
+        out:echo(self.to)
+        out:write(" ")
+    else
+        out:write(self.varname)
+    end
+end
+
+function atoms.whitespace:to_lua(out) out:write(self.ws) end
+function claw.whitespace:to_lua(out) out:write(self.whitespace) end
+
+return LuaOutput
+end
+
+
+package.preload['molecules'] = package.preload['molecules'] or function(...)
+
+local iter = require("iter")
+local Object = require("classic")
+local f, w, getter = iter.f, iter.w, iter.getter
+local pp = require("pprint")
+local eff = require("eff")
+local molecules = {}
+
+molecules.expr = Object:extend()
+local function fn(s) 
+    if type(s) == "string" then 
+        return f(s)
+    elseif type(s) == "function" then
+        return s
+    else
+        error("Cannot turn "..tostring(s).." into a function!")
+    end
+end
+
+local last = nil
+local function e(i,o) last.eff = eff.n(i, o) end
+
+function mol(name, new, tostr) 
+    local e = molecules.expr:extend() 
+    e.new = fn(new)
+    e.__tostring = fn(tostr)
+    e.___name = name
+    molecules[name] = e
+    last = e
+end
+
+mol('behaves', '(s,k,like) s.key=k s.like=like ', '(s)-> "( "..s.key.." behaves like "..s.like.. " )"')
+mol('binop', '(s,op) s.op=op', [[
+    (s) 
+        if s.a and s.b then
+            -> "("..tostring(s.a).." "..s.op.." "..tostring(s.b)..")"
+        else
+            -> "binop("..s.op..")"
+        end
+]]) e(2, 1) --
+mol('assign_op', '(s,op,var) s.op=op s.var=var', 
+'(s) -> "a_op("..s.op.."= "..s.var..")"') e(1,0) --
+mol('table_lit', '()', '(s) -> "table"') e(0, 1) --
+mol('shuffle', '(s, name, ins, outs) s.name=name s.ins=ins s.outs=outs s:init()', getter'name')  --
+function molecules.shuffle:init()
+    self.eff = eff(iter.copy(self.ins),iter.copy(self.outs))
+end
+
+mol('propget', '(s, prop) s.prop=prop', '(s) -> "pget("..s.prop..")"')  e(1,1) --
+mol('propset', '(s, prop) s.prop=prop', '(s) -> "pset("..s.prop..")"') e(2, 0) --
+mol('prop_set_it', '(s, prop) s.prop=prop', '(s) -> "pset_it("..s.prop..")"') e(1, 0) --
+mol('prop_get_it', '(s, prop) s.prop=prop', '(s) -> "pget_it("..s.prop..")"') e(0, 1) --
+mol('get', '()', '(s) -> "get"') e(2, 1) --
+mol('put', '()', '(s) -> "put"') e(3, 0) --
+mol('len', '()', '(s) -> "len"') e(1,1) --
+mol('_not', '()', '(s) -> "not"') e(1,1) --
+
+mol('call', [[(s, name, has_it, inputs, outputs) 
+s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()
+]], [[(s) 
+    if s.has_it then
+        -> string.format("call[%s](it+%s\\%s)", 
+            s.name, 
+            iter.str(s.inputs, ", "),
+            iter.str(s.outputs, ", "))
+    else
+        -> string.format("call[%s](%s\\%s)", 
+            s.name, 
+            iter.str(s.inputs, ", "),
+            iter.str(s.outputs, ", "))
+    end]])
+
+function molecules.call:init() 
+    local ins = iter.filter(self.inputs, f'(i) -> i ~= "it" and i ~= "#"')
+    -- pp{"DERPY", self.name, ins}
+    self.eff = eff(ins, iter.copy(self.outputs))
+end
+
+mol('mcall', [[(s, name, has_it, inputs, outputs)
+s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()
+]], [[(s)
+    if s.has_it then
+        -> string.format("mcall[%s](it+%s\\%s)", 
+            s.name, 
+            iter.str(s.inputs, ", "),
+            iter.str(s.outputs, ", "))
+    else
+        -> string.format("mcall[%s](%s\\%s)", 
+            s.name, 
+            iter.str(s.inputs, ", "),
+            iter.str(s.outputs, ", "))
+    end]])
+
+function molecules.mcall:init() 
+    local ins = iter.filter(self.inputs, f'(i) -> i ~= "it" and i ~= "#"')
+    -- pp{"DERPY", self.name, ins}
+    iter.shift(ins, 'obj')
+    self.eff = eff(ins, iter.copy(self.outputs))
+end
+
+mol('name_it', '(s, name) s.name=name', '(s) -> "name-it:"..s.name') e(0,0)
+function mol_str(name, str) mol(name, '()', '() -> "'..str..'"') end
+mol_str('new_table_it', 'new-table-it') e(0, 0) --
+mol_str('push_it', 'push-it') e(1, 0) --
+mol_str('pop_it', 'pop-it') e(0, 1) --
+mol_str('drop_it', 'drop-it') e(0,0) --
+mol_str('ref_it', 'ref-it') e(0, 1) --
+
+return molecules
+end
+
+
+package.preload['pprint'] = package.preload['pprint'] or function(...)
+
+local pprint = { VERSION = '0.1' }
+
+local depth = 1
+
+pprint.defaults = {
+    -- If set to number N, then limit table recursion to N deep.
+    depth_limit = false,
+    -- type display trigger, hide not useful datatypes by default
+    -- custom types are treated as table
+    show_nil = true,
+    show_boolean = true,
+    show_number = true,
+    show_string = true,
+    show_table = true,
+    show_function = false,
+    show_thread = false,
+    show_userdata = false,
+    -- additional display trigger
+    show_metatable = false,     -- show metatable
+    show_all = false,           -- override other show settings and show everything
+    use_tostring = false,       -- use __tostring to print table if available
+    filter_function = nil,      -- called like callback(value[,key, parent]), return truty value to hide
+    object_cache = 'local',     -- cache blob and table to give it a id, 'local' cache per print, 'global' cache
+                                -- per process, falsy value to disable (might cause infinite loop)
+    -- format settings
+    indent_size = 2,            -- indent for each nested table level
+    level_width = 80,           -- max width per indent level
+    wrap_string = true,         -- wrap string when it's longer than level_width
+    wrap_array = false,         -- wrap every array elements
+    string_is_utf8 = true,      -- treat string as utf8, and count utf8 char when wrapping, if possible
+    sort_keys = true,           -- sort table keys
+}
+
+local TYPES = {
+    ['nil'] = 1, ['boolean'] = 2, ['number'] = 3, ['string'] = 4, 
+    ['table'] = 5, ['function'] = 6, ['thread'] = 7, ['userdata'] = 8
+}
+
+-- seems this is the only way to escape these, as lua don't know how to map char '\a' to 'a'
+local ESCAPE_MAP = {
+    ['\a'] = '\\a', ['\b'] = '\\b', ['\f'] = '\\f', ['\n'] = '\\n', ['\r'] = '\\r',
+    ['\t'] = '\\t', ['\v'] = '\\v', ['\\'] = '\\\\',
+}
+
+-- generic utilities
+local tokenize_string = function(s)
+    local t = {}
+    for i = 1, #s do
+        local c = s:sub(i, i)
+        local b = c:byte()
+        local e = ESCAPE_MAP[c]
+        if (b >= 0x20 and b < 0x80) or e then
+            local s = e or c
+            t[i] = { char = s, len = #s }
+        else
+            t[i] = { char = string.format('\\x%02x', b), len = 4 }
+        end
+        if c == '"' then
+            t.has_double_quote = true
+        elseif c == "'" then
+            t.has_single_quote = true
+        end
+    end
+    return t
+end
+local tokenize_utf8_string = tokenize_string
+
+local has_lpeg, lpeg = pcall(require, 'lpeg')
+
+if has_lpeg then
+    local function utf8_valid_char(c)
+        return { char = c, len = 1 }
+    end
+
+    local function utf8_invalid_char(c)
+        local b = c:byte()
+        local e = ESCAPE_MAP[c]
+        if (b >= 0x20 and b < 0x80) or e then
+            local s = e or c
+            return { char = s, len = #s }
+        else
+            return { char = string.format('\\x%02x', b), len = 4 }
+        end
+    end
+
+    local cont = lpeg.R('\x80\xbf')
+    local utf8_char =
+        lpeg.R('\x20\x7f') +
+        lpeg.R('\xc0\xdf') * cont +
+        lpeg.R('\xe0\xef') * cont * cont +
+        lpeg.R('\xf0\xf7') * cont * cont * cont
+
+    local utf8_capture = (((utf8_char / utf8_valid_char) + (lpeg.P(1) / utf8_invalid_char)) ^ 0) * -1
+
+    tokenize_utf8_string = function(s)
+        local dq = s:find('"')
+        local sq = s:find("'")
+        local t = table.pack(utf8_capture:match(s))
+        t.has_double_quote = not not dq
+        t.has_single_quote = not not sq
+        return t
+    end
+end
+
+local function is_plain_key(key)
+    return type(key) == 'string' and key:match('^[%a_][%a%d_]*$')
+end
+
+local CACHE_TYPES = {
+    ['table'] = true, ['function'] = true, ['thread'] = true, ['userdata'] = true
+}
+
+-- cache would be populated to be like:
+-- {
+--     function = { `fun1` = 1, _cnt = 1 }, -- object id
+--     table = { `table1` = 1, `table2` = 2, _cnt = 2 },
+--     visited_tables = { `table1` = 7, `table2` = 8  }, -- visit count
+-- }
+-- use weakrefs to avoid accidentall adding refcount
+local function cache_apperance(obj, cache, option)
+    if not cache.visited_tables then
+        cache.visited_tables = setmetatable({}, {__mode = 'k'})
+    end
+    local t = type(obj)
+
+    -- TODO can't test filter_function here as we don't have the ix and key,
+    -- might cause different results?
+    -- respect show_xxx and filter_function to be consistent with print results
+    if (not TYPES[t] and not option.show_table)
+        or (TYPES[t] and not option['show_'..t]) then
+        return
+    end
+
+    if CACHE_TYPES[t] or TYPES[t] == nil then
+        if not cache[t] then
+            cache[t] = setmetatable({}, {__mode = 'k'})
+            cache[t]._cnt = 0
+        end
+        if not cache[t][obj] then
+            cache[t]._cnt = cache[t]._cnt + 1
+            cache[t][obj] = cache[t]._cnt
+        end
+    end
+    if t == 'table' or TYPES[t] == nil then
+        if cache.visited_tables[obj] == false then
+            -- already printed, no need to mark this and its children anymore
+            return
+        elseif cache.visited_tables[obj] == nil then
+            cache.visited_tables[obj] = 1
+        else
+            -- visited already, increment and continue
+            cache.visited_tables[obj] = cache.visited_tables[obj] + 1
+            return
+        end
+        for k, v in pairs(obj) do
+            cache_apperance(k, cache, option)
+            cache_apperance(v, cache, option)
+        end
+        local mt = getmetatable(obj)
+        if mt and option.show_metatable then
+            cache_apperance(mt, cache, option)
+        end
+    end
+end
+
+-- makes 'foo2' < 'foo100000'. string.sub makes substring anyway, no need to use index based method
+local function str_natural_cmp(lhs, rhs)
+    while #lhs > 0 and #rhs > 0 do
+        local lmid, lend = lhs:find('%d+')
+        local rmid, rend = rhs:find('%d+')
+        if not (lmid and rmid) then return lhs < rhs end
+
+        local lsub = lhs:sub(1, lmid-1)
+        local rsub = rhs:sub(1, rmid-1)
+        if lsub ~= rsub then
+            return lsub < rsub
+        end
+        
+        local lnum = tonumber(lhs:sub(lmid, lend))
+        local rnum = tonumber(rhs:sub(rmid, rend))
+        if lnum ~= rnum then
+            return lnum < rnum
+        end
+
+        lhs = lhs:sub(lend+1)
+        rhs = rhs:sub(rend+1)
+    end
+    return lhs < rhs
+end
+
+local function cmp(lhs, rhs)
+    local tleft = type(lhs)
+    local tright = type(rhs)
+    if tleft == 'number' and tright == 'number' then return lhs < rhs end
+    if tleft == 'string' and tright == 'string' then return str_natural_cmp(lhs, rhs) end
+    if tleft == tright then return str_natural_cmp(tostring(lhs), tostring(rhs)) end
+
+    -- allow custom types
+    local oleft = TYPES[tleft] or 9
+    local oright = TYPES[tright] or 9
+    return oleft < oright
+end
+
+-- setup option with default
+local function make_option(option)
+    if option == nil then
+        option = {}
+    end
+    for k, v in pairs(pprint.defaults) do
+        if option[k] == nil then
+            option[k] = v
+        end
+        if option.show_all then
+            for t, _ in pairs(TYPES) do
+                option['show_'..t] = true
+            end
+            option.show_metatable = true
+        end
+    end
+    return option
+end
+
+-- override defaults and take effects for all following calls
+function pprint.setup(option)
+    pprint.defaults = make_option(option)
+end
+
+-- format lua object into a string
+function pprint.pformat(obj, option, printer)
+    option = make_option(option)
+    local buf = {}
+    local function default_printer(s)
+        table.insert(buf, s)
+    end
+    printer = printer or default_printer
+
+    local cache
+    if option.object_cache == 'global' then
+        -- steal the cache into a local var so it's not visible from _G or anywhere
+        -- still can't avoid user explicitly referentce pprint._cache but it shouldn't happen anyway
+        cache = pprint._cache or {}
+        pprint._cache = nil
+    elseif option.object_cache == 'local' then
+        cache = {}
+    end
+
+    local last = '' -- used for look back and remove trailing comma
+    local status = {
+        indent = '', -- current indent
+        len = 0,     -- current line length
+        printed_something = false, -- used to remove leading new lines
+    }
+
+    local wrapped_printer = function(s)
+        status.printed_something = true
+        printer(last)
+        last = s
+    end
+
+    local function _indent(d)
+        status.indent = string.rep(' ', d + #(status.indent))
+    end
+
+    local function _n(d)
+        if not status.printed_something then return end
+        wrapped_printer('\n')
+        wrapped_printer(status.indent)
+        if d then
+            _indent(d)
+        end
+        status.len = 0
+        return true -- used to close bracket correctly
+    end
+
+    local function _p(s, nowrap)
+        status.len = status.len + #s
+        if not nowrap and status.len > option.level_width then
+            _n()
+            wrapped_printer(s)
+            status.len = #s
+        else
+            wrapped_printer(s)
+        end
+    end
+
+    local formatter = {}
+    local function format(v)
+        local f = formatter[type(v)]
+        f = f or formatter.table -- allow patched type()
+        if option.filter_function and option.filter_function(v, nil, nil) then
+            return ''
+        else
+            return f(v)
+        end
+    end
+
+    local function tostring_formatter(v)
+        return tostring(v)
+    end
+
+    local function number_formatter(n)
+        return n == math.huge and '[[math.huge]]' or tostring(n)
+    end
+
+    local function nop_formatter(v)
+        return ''
+    end
+
+    local function make_fixed_formatter(t, has_cache)
+        if has_cache then
+            return function (v)
+                return string.format('[[%s %d]]', t, cache[t][v])
+            end
+        else
+            return function (v)
+                return '[['..t..']]'
+            end
+        end
+    end
+
+    local function string_formatter(s, force_long_quote)
+        local tokens = option.string_is_utf8 and tokenize_utf8_string(s) or tokenize_string(s)
+        local string_len = 0
+        local escape_quotes = tokens.has_double_quote and tokens.has_single_quote
+        for _, token in ipairs(tokens) do
+            if escape_quotes and token.char == '"' then
+                string_len = string_len + 2
+            else
+                string_len = string_len + token.len
+            end
+        end
+        local quote_len = 2
+        local long_quote_dashes = 0
+        local function compute_long_quote_dashes()
+            local keep_looking = true
+            while keep_looking do
+                if s:find('%]' .. string.rep('=', long_quote_dashes) .. '%]') then
+                    long_quote_dashes = long_quote_dashes + 1
+                else
+                    keep_looking = false
+                end
+            end
+        end
+        if force_long_quote then
+            compute_long_quote_dashes()
+            quote_len = 2 + long_quote_dashes
+        end
+        if quote_len + string_len + status.len > option.level_width then
+            _n()
+            -- only wrap string when is longer than level_width
+            if option.wrap_string and string_len + quote_len > option.level_width then
+                if not force_long_quote then
+                    compute_long_quote_dashes()
+                    quote_len = 2 + long_quote_dashes
+                end
+                -- keep the quotes together
+                local dashes = string.rep('=', long_quote_dashes)
+                _p('[' .. dashes .. '[', true)
+                local status_len = status.len
+                local line_len = 0
+                local line = ''
+                for _, token in ipairs(tokens) do
+                    if line_len + token.len + status_len > option.level_width then
+                        _n()
+                        _p(line, true)
+                        line_len = token.len
+                        line = token.char
+                    else
+                        line_len = line_len + token.len
+                        line = line .. token.char
+                    end
+                end
+
+                return line .. ']' .. dashes .. ']'
+            end
+        end
+
+        if tokens.has_double_quote and tokens.has_single_quote and not force_long_quote then
+            for i, token in ipairs(tokens) do
+                if token.char == '"' then
+                    tokens[i].char = '\\"'
+                end
+            end
+        end
+        local flat_table = {}
+        for _, token in ipairs(tokens) do
+            table.insert(flat_table, token.char)
+        end
+        local concat = table.concat(flat_table)
+
+        if force_long_quote then
+            local dashes = string.rep('=', long_quote_dashes)
+            return '[' .. dashes .. '[' .. concat .. ']' .. dashes .. ']'
+        elseif tokens.has_single_quote then
+            -- use double quote
+            return '"' .. concat .. '"'
+        else
+            -- use single quote
+            return "'" .. concat .. "'"
+        end
+    end
+
+    local function table_formatter(t)
+        if option.use_tostring then
+            local mt = getmetatable(t)
+            if mt and mt.__tostring then
+                return string_formatter(tostring(t), true)
+            end
+        end
+
+        local print_header_ix = nil
+        local ttype = type(t)
+        if option.object_cache then
+            local cache_state = cache.visited_tables[t]
+            local tix = cache[ttype][t]
+            -- FIXME should really handle `cache_state == nil`
+            -- as user might add things through filter_function
+            if cache_state == false then
+                -- already printed, just print the the number
+                return string_formatter(string.format('%s %d', ttype, tix), true)
+            elseif cache_state > 1 then
+                -- appeared more than once, print table header with number
+                print_header_ix = tix
+                cache.visited_tables[t] = false
+            else
+                -- appeared exactly once, print like a normal table
+            end
+        end
+
+        local limit = tonumber(option.depth_limit)
+        if limit and depth > limit then
+           if print_header_ix then
+              return string.format('[[%s %d]]...', ttype, print_header_ix)
+           end
+           return string_formatter(tostring(t), true)
+        end
+
+        local tlen = #t
+        local wrapped = false
+        _p('{')
+        _indent(option.indent_size)
+        _p(string.rep(' ', option.indent_size - 1))
+        if print_header_ix then
+            _p(string.format('--[[%s %d]] ', ttype, print_header_ix))
+        end
+        for ix = 1,tlen do
+            local v = t[ix]
+            if formatter[type(v)] == nop_formatter or 
+               (option.filter_function and option.filter_function(v, ix, t)) then
+               -- pass
+            else
+                if option.wrap_array then
+                    wrapped = _n()
+                end
+                depth = depth+1
+                _p(format(v)..', ')
+                depth = depth-1
+            end
+        end
+
+        -- hashmap part of the table, in contrast to array part
+        local function is_hash_key(k)
+            if type(k) ~= 'number' then
+                return true
+            end
+
+            local numkey = math.floor(tonumber(k))
+            if numkey ~= k or numkey > tlen or numkey <= 0 then
+                return true
+            end
+        end
+
+        local function print_kv(k, v, t)
+            -- can't use option.show_x as obj may contain custom type
+            if formatter[type(v)] == nop_formatter or
+               formatter[type(k)] == nop_formatter or 
+               (option.filter_function and option.filter_function(v, k, t)) then
+                return
+            end
+            wrapped = _n()
+            if is_plain_key(k) then
+                _p(k, true)
+            else
+                _p('[')
+                -- [[]] type string in key is illegal, needs to add spaces inbetween
+                local k = format(k)
+                if string.match(k, '%[%[') then
+                    _p(' '..k..' ', true)
+                else
+                    _p(k, true)
+                end
+                _p(']')
+            end
+            _p(' = ', true)
+            depth = depth+1
+            _p(format(v), true)
+            depth = depth-1
+            _p(',', true)
+        end
+
+        if option.sort_keys then
+            local keys = {}
+            for k, _ in pairs(t) do
+                if is_hash_key(k) then
+                    table.insert(keys, k)
+                end
+            end
+            table.sort(keys, cmp)
+            for _, k in ipairs(keys) do
+                print_kv(k, t[k], t)
+            end
+        else
+            for k, v in pairs(t) do
+                if is_hash_key(k) then
+                    print_kv(k, v, t)
+                end
+            end
+        end
+
+        if option.show_metatable then
+            local mt = getmetatable(t)
+            if mt then
+                print_kv('__metatable', mt, t)
+            end
+        end
+
+        _indent(-option.indent_size)
+        -- make { } into {}
+        last = string.gsub(last, '^ +$', '')
+        -- peek last to remove trailing comma
+        last = string.gsub(last, ',%s*$', ' ')
+        if wrapped then
+            _n()
+        end
+        _p('}')
+
+        return ''
+    end
+
+    -- set formatters
+    formatter['nil'] = option.show_nil and tostring_formatter or nop_formatter
+    formatter['boolean'] = option.show_boolean and tostring_formatter or nop_formatter
+    formatter['number'] = option.show_number and number_formatter or nop_formatter -- need to handle math.huge
+    formatter['function'] = option.show_function and make_fixed_formatter('function', option.object_cache) or nop_formatter
+    formatter['thread'] = option.show_thread and make_fixed_formatter('thread', option.object_cache) or nop_formatter
+    formatter['userdata'] = option.show_userdata and make_fixed_formatter('userdata', option.object_cache) or nop_formatter
+    formatter['string'] = option.show_string and string_formatter or nop_formatter
+    formatter['table'] = option.show_table and table_formatter or nop_formatter
+
+    if option.object_cache then
+        -- needs to visit the table before start printing
+        cache_apperance(obj, cache, option)
+    end
+
+    _p(format(obj))
+    printer(last) -- close the buffered one
+
+    -- put cache back if global
+    if option.object_cache == 'global' then
+        pprint._cache = cache
+    end
+
+    return table.concat(buf)
+end
+
+-- pprint all the arguments
+function pprint.pprint( ... )
+    local args = {...}
+    -- select will get an accurate count of array len, counting trailing nils
+    local len = select('#', ...)
+    for ix = 1,len do
+        pprint.pformat(args[ix], nil, io.write)
+        io.write('\n')
+    end
+end
+
+setmetatable(pprint, {
+    __call = function (_, ...)
+        pprint.pprint(...)
+    end
+})
+
+return pprint
+end
+
+
+package.preload['record'] = package.preload['record'] or function(...)
+
+local Object = require("classic")
+local iter = require("iter")
+
+local function dup(fn) 
+    return function(v)
+        return fn(v, v)
+    end
+end
+
+local function cond(pred, a, b) if pred then return a else return b end end
+
+local function fmt(format) 
+    return function(...)
+        return string.format(format, ...)
+    end
+end
+
+local function record(name, super, ...) 
+    local fields = {...}
+    local me = super:extend()
+    me.___name = name
+
+    local code = [[local me = ({...})[1]  function me:new(]]..iter.str(fields, ", ")..[[)
+]]..iter.strmap(fields, dup(fmt("    self.%s = %s")), "\n")..[[
+    if self.init then self:init() end
+end
+function me:__tostring()
+    return "]]..name..[[("..string.format("]] 
+        .. iter.strmap(fields, fmt(' %s = %%s ', ", "))  
+        ..cond(#fields>0,  [[", ]], '"')..iter.strmap(fields, fmt("tostring(self.%s)"), ", ") ..[[).." )"
+end
+]]
+
+    assert(load(code, "rec: "..name, "t"))(me)
+    return me
+end
+
+return record
+end
+
+
+package.preload['resolve'] = package.preload['resolve'] or function(...)
+
+local iter = require("iter")
+local record = require("record")
+local eff = require("eff")
+local molecules = require("molecules")
+local trace = require("trace")
+local Object = require("classic")
+local f, w = iter.f, iter.w
+local claw = require("claw")
+local atoms = require("atoms")
+
+
+local Env = Object:extend()
+
+function Env:new(parent)
+    self.kv = {}
+    self.parent = parent
+end
+
+function Env:get(key)
+    if self.kv[key] then
+        return self.kv[key]
+    elseif self.parent then
+        return self.parent:get(key)
+    else
+        return nil
+    end
+end
+
+function Env:put(key, value) self.kv[key] = value end
+
+local call_eff = {}
+function call_eff.is(word) return word:find("([^(]*)%(#?%**\\?%**%)$") ~= nil end
+function call_eff.parse(word) 
+    local _,_, called, ins, outs = word:find("([^(]*)%((#?%**)\\?(%**)%)$")
+    -- trace:pp{"KERY", called,ins,outs}
+    if ins then
+        return called, iter.chars(ins), iter.chars(outs or "") 
+    else
+        trace(self.name)
+        return nil
+    end
+end
+
+function claw.body:resolve(env)
+    local to_remove = {}
+    for idx, node in ipairs(self._items) do
+        function map(to) self._items[idx] = to end
+        if instanceof(node, claw.unresolved) then
+            if tonumber(node.tok) then
+                map(atoms.number(tonumber(node.tok)))
+            elseif node.tok:find('^"') and node.tok:find('"$') then
+                map(atoms.string(node.tok:sub(2,-2)))
+            elseif env:get(node.tok) then
+                local val = env:get(node.tok)
+                if type(val) == "function" then 
+                    val = val() 
+                end
+                if instanceof(val, atoms.assign_op) then
+                    assert(instanceof(self._items[idx+1], claw.unresolved))
+                    map(molecules.assign_op(val.op, self._items[idx+1].tok))
+                    table.remove(self._items, idx+1)
+                elseif instanceof(val, claw.func) then
+                    map(molecules.call(
+                        val.name, 
+                        iter.has_value(val.inputs, '#'),
+                        iter.copy(val.inputs), 
+                        iter.copy(val.outputs)
+                    ))
+                else
+                    local v = env:get(node.tok)
+                    if type(v) == "function" then
+                        map(v())
+                    else
+                        map(v)
+                    end
+                end
+            elseif call_eff.is(node.tok) then
+                local word, ins, outs = call_eff.parse(node.tok)
+                if word:find("^:") then
+                    map(molecules.mcall(
+                        word:sub(2),
+                        iter.has_value(ins, "#"),
+                        ins,
+                        outs
+                    ))
+                else
+                    map(molecules.call(
+                        word,
+                        iter.has_value(ins, "#"),
+                        ins,
+                        outs
+                    ))
+                end
+            elseif node.tok:match("^::") and node.tok ~= "::" then
+                
+                trace("rename tok: "..node.tok)
+                local it_name = node.tok:sub(3)
+                env:put(claw.it_fn, it_name)
+                env:put(it_name, atoms.var(it_name))
+                map(molecules.name_it(it_name))
+            elseif node.tok:match("^@") then
+                map(atoms.lit(node.tok:sub(2)))
+            elseif node.tok:match("^%.") then
+                map(molecules.propget(node.tok:sub(2)))
+            elseif node.tok:match("^>>") then
+                map(molecules.prop_set_it(node.tok:sub(3)))
+            elseif node.tok:match("^>") then
+                map(molecules.propset(node.tok:sub(2)))
+            elseif node.tok:match(">>$") then
+                map(molecules.prop_get_it(node.tok:sub(1,-3)))
+            elseif node.tok:match('[\r\n]') then
+                self._items[idx] = atoms.whitespace(node.tok)
+            else
+                error("Unable to resolve token: ["..node.tok.."] in "..trace:peek())
+            end
+        else
+            trace("RESOLVING: "..tostring(node))
+            node:resolve(env)
+            trace("RESOLVED: "..tostring(node))
+        end
+    end
+end
+
+function molecules.behaves:resolve(env) 
+    self.eff = eff.n(0,0)
+    if call_eff.is(self.like) then
+        _, ins, outs = call_eff.parse(self.like)
+        env:put(self.key, claw.func(self.key, ins, outs, claw.body()))
+    elseif self.like == "@" then
+        env:put(self.key, atoms.var(self.key))
+    else
+        error("Unrecognized behavior: "..self.like) 
+    end
+end
+
+function claw.whitespace:resolve(env) end
+
+function claw.assign_many:resolve(env) 
+    self.is_new = {}
+    for i, v in ipairs(self.varnames) do
+        local ev = env:get(v)
+        self.is_new[i] = not env:get(v)
+        env:put(v, atoms.var(v))
+    end
+end
+
+function resolve_namelist(self, env, list)
+    self.is_new = {}
+    local i = 1
+    for v in iter.each(list) do
+        local ev = env:get(v)
+        self.is_new[i] = not env:get(v)
+        env:put(v, atoms.var(v))
+        i = i + 1
+    end
+end
+
+function claw.ifelse:resolve(env) 
+    self.when_true:resolve(env)
+    self.when_false:resolve(env)
+end
+
+function claw.if_:resolve(env) self.when_true:resolve(env) end
+
+function claw.func:resolve(env)
+    if instanceof(self.name, claw.it_fn) then
+        self.name = env:get(claw.it_fn) .. "." .. self.name.name
+    end
+
+    trace:push(self.name)
+    env:put(self.name, self)
+    local fenv = Env(env)
+    if self.input_assigns then resolve_namelist(self, fenv, self.inputs) end
+    self.body:resolve(fenv)
+    self.env = fenv
+    trace:pop()
+end
+
+local body_res = f'(s, env) s.body:resolve(env)'
+
+claw.iter.resolve = body_res
+claw.do_loop.resolve = body_res
+claw.do_step_loop.resolve = body_res
+claw.do_while_loop.resolve = f'(s, env) s.cond:resolve(env) s.body:resolve(env)'
+claw.each_loop.resolve = body_res
+
+function claw.cond_clause:resolve(env)
+    self.pred:resolve(env)
+    self.body:resolve(env)
+end
+
+function claw.cond:resolve(env)
+    for c in iter.each(self.clauses) do 
+        c:resolve(env)
+    end
+end
+
+
+return { Env=Env, Atom=Atom, atoms=atoms}
+end
+
+
+package.preload['onion.scratch'] = package.preload['onion.scratch'] or function(...)
+
+package.path = "./onion/?.lua;"..package.path
+-- lex (str) -> tokens
+-- parse(tokens) -> ast
+---- chunk(tokens, until) -> toks, new_toks
+-- resolve_names(ast) -> ast + env
+-- effects(ast) -> ast+(blocks & exprs) ! underflows (?)
+-- stitch(ast+(blocks & exprs))
+-- ssa allocate (ast + (blocks & exprs))
+local trace = require("trace")
+
+local Lex = require("lexer")
+local Env = require("resolve")
+local BaseEnv = require("basenv")
+local LuaOutput = require("lunar")
+local seam = require("seam")
+local claw = require("claw") 
+local molecules = require("molecules")
+local iter = require("iter")
+local f = iter.f
+require("check_stack")
+require("stitch")
+local tests = require("tests")
+local onion = {}
+
+local function matcher(of)
+    function any_of(options)
+        for i, v in ipairs(options) do
+            options[i] = matcher(v)
+        end
+
+        return function(el)
+            for _, pred in ipairs(options) do
+                if pred(el) then
+                    return true
+                end
+            end
+            return false
+        end
+    end
+	if type(of) == "function" then
+        return of
+    elseif of == Lex.EOF then
+        return function(el) return el == Lex.EOF end
+    elseif type(of) == "table" then
+        return any_of(of)
+	else
+	    return function(el) return el == of end
+	end
+end
+
+local cond = f'(bool, a, b) if bool then -> a else -> b ;'
+
+function chunk(t, end_match, end_name)
+    local end_pred = matcher(end_match)
+    local ret = {}
+    while t:tok() do
+        if t:can(end_pred) then
+            return ret, t:tok()
+        else
+            iter.push(ret, t:tok())
+            t:next()
+        end
+    end
+    error("Expected "..end_name.." before end of tokens!")
+end
+
+local call_eff = {}
+function call_eff.is(word) return word:find("([^(]+)%(%**\\?%**%)$") ~= nil end
+function call_eff.parse(word) 
+    local _,_, called, ins, outs = word:find("([^(]+)%((%**)\\?(%**)%)$")
+
+    trace("CALL_EFF_PARSE", word, word:find("([^(]+)%((%**)\\?(%**)%)$"))
+
+    if ins then
+        return called, #ins, #(outs or {})
+    else
+        return nil
+    end
+end
+
+local short_eff = {}
+function short_eff.is(word) return word:find("^%(#?%**\\?%**%)$") ~= nil end
+function short_eff.parse(word) 
+    local _,_,ins, outs = word:find("^%((#?%**)\\?(%**)%)$")
+    if ins then
+        return ins, outs
+    else
+        return nil, "unable to parse short-effect: "..word
+    end
+end
+
+local iter_eff = {}
+function iter_eff.is(word) 
+    -- trace:enable()
+    trace(word==Lex.EOF)
+    --trace:pp(word)
+    -- trace.disable()
+    return (not not string.find(word, "[^[]*%[#?%**\\[*_]*%]$")) end
+function tests.iter_effs_parse()
+    function t(a, b) assert(iter_eff.is(a), b) end
+    t("[*\\*]", "1 to 1")
+    t("[\\*]", "0 to 1")
+    t("[**\\*]", "2 to 1")
+    t("[#\\*]", "it to 1")
+    t("[#\\*_]", "it to 1,_")
+end
+function tests.word_iter_effs_parse()
+    function t(a, b) assert(iter_eff.is(a), b) end
+    t("ipairs[*\\*]", "1 to 1")
+    t(":nodes[\\*]", "0 to 1")
+    t("derp[**\\*]", "2 to 1")
+    t("ipairs[#\\*]", "it to 1")
+end
+
+function iter_eff.parse(word)
+    if not iter_eff.is(word) then
+        error ("invalid iter effect: "..word)
+    end
+    local patt = "([^[]*)%[(#?%**)\\([*_]*)%]$"
+    local _, _, word, inputs, loop_vars = word:find(patt)
+    return word, iter.chars(inputs), iter.chars(loop_vars)
+end
+
+local parse =  {}
+
+function parse.cond_body(t)
+    local clauses = claw.body() 
+
+    while t:tok() do
+        local ws
+        if t:matches("[\r\n]") then
+            ws = claw.whitespace(t:tok())
+            t:next()
+        end
+        local pred_body = parse.of_chunk(t, "->", "cond pred clause") t:next()
+        local when_true_body = parse.of_chunk(t, "of", "cond body clause") t:next()
+        local clause = claw.cond_clause(pred_body, when_true_body)
+        if ws then clause.pre = ws end
+        clauses:compile(clause)
+        if t:matches("[\r\n]") then
+            clause.post = claw.whitespace(t:tok())
+            t:next()
+        end
+        if t:is("end") then
+            t:next()
+            return claw.cond(clauses)
+        end
+    end
+    error("Expected an 'end' token")
+end
+
+function parse.of_chunk(t, end_, end_name)
+    trace("Parsing for "..(end_name or 'nil'))
+    local is_end = matcher(end_)
+    local body = claw.body()
+    while t:tok() and not (t:tok() == Lex.EOF and end_ ~= Lex.EOF)  do
+        if is_end(t:tok()) then
+            return body, t:tok()
+        end
+
+        if t:is("if") then
+            t:next()
+            local t_body, tail = parse.of_chunk(t, {"else", "then"}, "else/then in "..trace:peek())
+            if tail == "else" then
+                t:next()
+                f_body = parse.of_chunk(t, "then", "then")
+                body:compile(claw.ifelse(t_body, f_body))
+            else
+                body:compile(claw.if_(t_body))
+            end
+            t:next()
+        elseif t:is("behaves") then
+            t:next()
+            local key = t:tok() t:next()
+            local behavoior = t:tok() t:next()
+            body:compile(molecules.behaves(key, behavoior))
+        elseif t:is(":") or t:is("::") then
+            local is_it_fn = t:is("::")
+            t:next()
+            local name = cond(t:any_of{"(", "{"} or t:can(short_eff.is), claw.anon_fn, t:tok())
+            trace:push(tostring(name))
+            if is_it_fn and name == claw.anon_fn then error("An :: function defintion cannot be anonymous") end
+            if is_it_fn then name = claw.it_fn(name) end
+            if name ~= claw.anon_fn then t:next() end
+            local input_assigns = false
+            local inputs, outputs = nil, nil
+            assert(t:any_of{"(", "{"} or t:can(short_eff.is), "Word def should have stack effect")
+            if t:is("(") then
+                t:next()
+                inputs = claw.namelist(chunk(t, "--", "stack effect split"))
+                t:next()
+                outputs = claw.namelist(chunk(t, ")", "end of stack effect"))
+                t:next()
+            elseif t:is("{") then
+                input_assigns = true
+                t:next()
+                inputs = claw.namelist(chunk(t, "--", "var stack effect split"))
+                t:next()
+                outputs = claw.namelist(chunk(t, "}", "end of var stack effect"))
+                t:next()
+            elseif t:can(short_eff.is) then
+                local i, o = assert(short_eff.parse(t:tok()))
+                t:next()
+                inputs = claw.namelist(iter.chars(i))
+                outputs = claw.namelist(iter.chars(o))
+            else
+                error("Word def should have stack effect!")
+            end
+            fn_body = parse.of_chunk(t, ";", "end of "..tostring(name))
+            local fn = claw.func(name, inputs, outputs, fn_body)
+            fn.input_assigns = input_assigns
+            body:compile(fn)
+            t:next()
+            trace:pop()
+        elseif t:is("do") then
+            t:next()
+            local loop_body = parse.of_chunk(t, "loop", "do loop")
+            t:next()
+            body:compile(claw.do_loop(loop_body))
+        elseif t:is("+do") then
+            t:next()
+            local loop_body = parse.of_chunk(t, "loop", "+do loop")
+            t:next()
+            body:compile(claw.do_step_loop(loop_body))
+        elseif t:is("do?") then
+            t:next()
+            local loop_pred = parse.of_chunk(t, "while", "while")
+            t:next()
+            local loop_body = parse.of_chunk(t, "loop", "do? loop")
+            t:next()
+            body:compile(claw.do_while_loop(loop_pred, loop_body))
+        elseif t:is("each") then
+            t:next()
+            local loop_body = parse.of_chunk(t, "for", "for")
+            body:compile(claw.each_loop(loop_body))
+            t:next()
+        elseif t:can(iter_eff.is) then
+            local w, i, o = iter_eff.parse(t:tok())
+            t:next()
+            local loop_body = parse.of_chunk(t, "for", t:tok().." end")
+            body:compile(claw.iter(w, i, o, loop_body))
+            t:next()
+        elseif t:is("cond") then
+            t:next()
+            body:compile(parse.cond_body(t))
+        elseif t:is("{") then
+            t:next()
+            local vars, tail = chunk(t, "}", "close curly")
+            t:next()
+            body:compile(claw.assign_many(vars))
+        else
+            body:compile(claw.unresolved(t:tok()))
+            t:next()
+        end
+    end
+    error("Expected "..(end_name or "nil" ).." before end of code!")
+end
+
+function onion.compile(code)
+    trace:push("TOPLEVEL")
+    local toks = Lex(code)
+    local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
+    local env = BaseEnv()
+    ast:resolve(env)
+    ast:stack_infer()
+    local stack = seam.stack('toplevel')
+    local it_stack = seam.stack('toplevel it')
+    -- trace:enable()
+    ast:stitch(stack, it_stack)
+    -- trace:pp(ast)
+    --trace:disable()
+    -- for a in iter.each(ast) do trace("AST", a) end
+    local out = LuaOutput()
+    ast:to_lua(out)
+    trace:pop()
+    return out:str()
+end
+
+function onion.exec(code, ...)
+    assert(load(onion.compile(code), "t"))(...)
+end
+
+return onion
+end
+
+
+package.preload['seam'] = package.preload['seam'] or function(...)
+
+-- This is a stack, the file name needs to be changed later
+
+local record = require("record")
+--local trace = require("trace")
+local iter = require("iter")
+local f = iter.f
+local Object = require("classic")
+
+local seam = {}
+seam.base = Object:extend()
+
+
+function rec(name, ...) 
+    local cls = record(name, seam.base, ...)
+    seam[name] = cls
+    last=cls
+    return cls
+end
+
+rec("cell", "item")
+seam.cell.set = f'(s,val) s.item = val'
+seam.cell.get = f'(s) -> s.item'
+seam.cell.__tostring = f'(s) -> "$["..tostring(s.item).."]"'
+
+rec("lit", "val")
+rec("strlit", "val")
+rec("expr", "tree")
+rec("var", "name")
+seam.var.__tostring = f'(s) -> "\'"..tostring(s.name).."\'"'
+rec("ssa_assign", "to")
+rec("ssa_var")
+seam.ssa_var.__tostring = f'(s) -> "%ssa"'
+rec("assign", "name", "val")
+
+function seam.to_var(val) error("seam.to_var not implemented!") end
+
+seam.stack = seam.base:extend()
+function seam.stack:new(name)
+    self.name = name
+    self._items = {}
+    if self.init then self:init() end
+end
+
+seam.stack.push = f'(s, val) --[[print("push", s.name, val)]] iter.push(s._items, val)'
+seam.stack.peek = f'(s) -> s._items[#s._items]'
+seam.stack.pop = f[=[(s)
+    --[[print("pop", s.name)]]
+  if #s._items > 0 then -> iter.pop(s._items) else error("Stack underflow!") end]=]
+seam.stack.__each = f'(s) -> iter.each(s._items)'
+seam.stack.__len = f'(s) -> #s._items'
+function seam.stack:__tostring()
+    return '{- '..iter.str(self._items, ", ")..' -}'
+end
+function seam.stack:copy(name)
+    local ret = seam.stack(name)
+    ret._items = iter.copy(self._items)
+    return ret
+end
+
+
+return seam
+
+end
+
+
+package.preload['stitch'] = package.preload['stitch'] or function(...)
+
+local atoms = require("atoms")
+local molecules = require("molecules")
+local trace = require("trace")
+local iter = require("iter")
+local claw = require("claw")
+local Object = require("classic")
+local record = require("record")
+local seam = require("seam")
+local f, w, getter = iter.f, iter.w, iter.getter
+
+local function to_assign(val)
+    if instanceof(val:get(), seam.var) then
+        return val, false
+    elseif instanceof(val:get(), seam.cell) then
+        return to_assign(val:get())
+    elseif instanceof(val:get(), seam.ssa_var) then
+        return val:get(), false
+    else
+        val:set(seam.ssa_assign(val:get()))
+        return val, true
+    end
+end
+
+-- molecule stitches
+--
+function atoms.bool:stitch(stack, it_stack)
+    stack:push(seam.cell(seam.lit(self.val)))
+    self.no_out = true
+end
+
+function atoms.var:stitch(stack, it_stack)
+    stack:push(seam.cell(seam.var(self.name)))
+    self.no_out = true
+end
+
+function atoms.number:stitch(stack, it_stack)
+    stack:push(seam.cell(seam.lit(self.val)))
+    self.no_out = true
+end
+
+function atoms.string:stitch(stack, it_stack)
+    stack:push(seam.cell(seam.strlit(self.val)))
+    self.no_out = true
+end
+
+function atoms.lit:stitch(stack, it_stack)
+    stack:push(seam.cell(seam.var(self.val)))
+    self.no_out = true
+end
+
+function molecules.binop:stitch(stack, it_stack) 
+    self.b, self.a = stack:pop(), stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+function molecules.assign_op:stitch(stack, it_stack) 
+    self.value = stack:pop()
+end
+
+function molecules.table_lit:stitch(stack, it_stack)
+    self.var = seam.cell(seam.ssa_var())
+    stack:push(self.var)
+end
+
+function molecules.shuffle:stitch(stack, it_stack) 
+    local in_kv = {}
+    for i in iter.backwards(self.ins) do
+        in_kv[i] = stack:pop()
+    end
+    for i in iter.each(self.outs) do
+        stack:push(in_kv[i] or error("Invalid shuffle word!"))
+    end
+    self.no_out = true
+end
+
+function molecules.len:stitch(stack, it_stack)
+    self.obj = stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+function molecules._not:stitch(stack, it_stack)
+    self.obj = stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+
+function molecules.get:stitch(stack, it_stack)
+    self.obj = stack:pop()
+    self.key = stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+function molecules.put:stitch(stack, it_stack)
+    self.val = stack:pop()
+    self.key = stack:pop()
+    self.obj = stack:pop()
+end
+
+function molecules.propget:stitch(stack, it_stack)
+    self.obj = stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+function molecules.propset:stitch(stack, it_stack)
+    self.val = stack:pop()
+    self.obj = stack:pop()
+end
+
+function molecules.prop_get_it:stitch(stack, it_stack)
+    self.obj = it_stack:peek()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
+function molecules.prop_set_it:stitch(stack, it_stack)
+    self.obj = it_stack:peek()
+    self.val = stack:pop()
+end
+
+function molecules.push_it:stitch(stack, it_stack)
+    self.var, self.is_new = to_assign(stack:pop())
+    it_stack:push(seam.cell(self.var))
+    self.no_out = not self.is_new
+end
+
+function molecules.pop_it:stitch(stack, it_stack)
+    stack:push(it_stack:pop())
+    trace("POPOPOPIT", stack:peek())
+    self.no_out = true
+end
+
+function molecules.drop_it:stitch(stack, it_stack) 
+    self.no_out = true
+    it_stack:pop() 
+end
+
+function molecules.ref_it:stitch(stack, it_stack) 
+    stack:push(it_stack:peek()) 
+    self.no_out = true
+end
+
+function molecules.name_it:stitch(stack, it_stack)
+    self.from = it_stack:pop()
+    self.to = seam.cell(seam.var(self.name))
+    -- trace:pp{"NAMEIT", self}
+    it_stack:push(self.to)
+end
+
+function molecules.new_table_it:stitch(stack, it_stack)
+    self.var = seam.cell(seam.ssa_var())
+    it_stack:push(self.var)
+end
+
+function molecules.behaves:stitch(stack, it_stack) self.no_out = true end
+
+-- call stitches
+function molecules.call:stitch(stack, it_stack)
+    trace:pp{"HORKY", self, stack}
+    local new_inputs = {}
+    for v in iter.backwards(self.inputs) do
+        trace("INP", v)
+        if v == '#' then
+            iter.shift(new_inputs, it_stack:peek() or error("It stack underflow"))
+        else
+            iter.shift(new_inputs, stack:pop())
+        end
+    end
+    self.inputs = new_inputs
+    local idx = 1
+    for v in iter.each(self.outputs) do
+        local var = seam.cell(seam.ssa_var())
+        self.outputs[idx] = var:get()
+        stack:push(var)
+        idx = idx + 1
+    end
+end
+
+function molecules.mcall:stitch(stack, it_stack)
+    self.on = stack:pop()
+    for idx, v in iter.ripairs(self.inputs) do
+        if v == '#' then
+            self.inputs[idx] = it_stack:peek() or error("It stack underflow")
+        else
+            self.inputs[idx] = stack:pop()
+        end
+    end
+    for idx, _ in ipairs(self.outputs) do
+        local var = seam.cell(seam.ssa_var())
+        self.outputs[idx] = var:get()
+        stack:push(var)
+    end
+end
+
+-- claw stitches
+
+function claw.body:stitch(stack, it_stack)
+    assert(stack, "missing stack!")
+    assert(it_stack, "missing it_stack!")
+    for idx, node in ipairs(self._items) do
+        trace("BEFORE", node, type(node), stack)
+        node:stitch(stack, it_stack)
+        trace("AFTER",tostring(node).." |$| ", stack)
+    end
+end
+
+function claw.func:stitch(outer_stack, outer_it_stack)
+    trace:push(self.name)
+    local stack = seam.stack(tostring(self.name) .. ' value')
+    local it_stack = seam.stack(tostring(self.name) .. ' it')
+    -- trace.pp{"BITSCANNON", self.inputs, instanceof(self.inputs, claw.namelist)}
+    if not self.input_assigns then
+        local idx = 1
+        for i in iter.each(self.inputs) do
+            if i ~= '#' then
+                stack:push(seam.cell(seam.var("p"..idx)))
+                idx = idx+1
+            else
+                it_stack:push(seam.cell(seam.var("it")))
+            end
+        end
+    end
+    if self.input_assigns then
+        for i in iter.each(self.inputs) do
+            if i == '#' then
+                it_stack:push(seam.cell(seam.var("it")))
+            end
+        end
+    end
+    self.body:stitch(stack, it_stack)
+    self.seam_outputs = stack:copy(self.name)
+    trace(self.outputs, "==", self.seam_outputs)
+    assert(#self.seam_outputs == #self.outputs, "Invalid stack effect!")
+
+    if self.name == claw.anon_fn then
+        outer_stack:push(seam.cell(self))
+    end
+    if type(self.name) == "string" and self.name:match("^]") then
+        -- THIS IS A HACK
+        outer_it_stack:pop()
+    end
+    trace:pop()
+    self.no_out = self.name == claw.anon_fn
+end
+
+function claw.iter:stitch(stack, it_stack)
+    self.input_cells = {}
+    for i in iter.backwards(self.inputs) do
+        if i == '#' then
+            iter.shift(self.input_cells, it_stack:peek())
+        else
+            iter.shift(self.input_cells, stack:pop())
+        end
+    end
+
+    local body_stack = seam.stack()
+
+    for idx, lv in ipairs(self.loop_vars) do
+        if lv ~= '_' then
+            local v = seam.ssa_var()
+            body_stack:push(seam.cell(v))
+            self.loop_vars[idx] = v
+        end
+    end
+    self.body:stitch(body_stack, it_stack)
+end
+
+function claw.each_loop:stitch(stack, it_stack)
+    self.in_var = stack:pop()
+    local body_stack = seam.stack()
+    self.loop_var = seam.ssa_var()
+    body_stack:push(seam.cell(self.loop_var))
+    self.body:stitch(body_stack, it_stack)
+end
+
+
+function claw.do_loop:stitch(stack, it_stack)
+    self.from = stack:pop()
+    self.to = stack:pop()
+    self.var = seam.ssa_var()
+    stack:push(seam.cell(self.var))
+    self.body:stitch(stack, it_stack)
+end
+
+function claw.do_step_loop:stitch(stack, it_stack)
+    self.step = stack:pop()
+    self.to = stack:pop()
+    self.from = stack:pop()
+    self.var = seam.ssa_var()
+    stack:push(seam.cell(self.var))
+    self.body:stitch(stack, it_stack)
+end
+
+function claw.do_while_loop:stitch(stack, it_stack)
+    local cond_stack = seam.stack()
+    self.cond:stitch(cond_stack, it_stack)
+    self.cond_val = cond_stack:pop()
+    self.body:stitch(seam.stack(), it_stack)
+end
+
+
+function claw.assign_many:stitch(stack, it_stack)
+    self.assigns = {}
+    for n in iter.backwards(self.varnames) do
+        iter.push(self.assigns, stack:pop())
+    end
+end
+
+function claw.whitespace:stitch(_,_) end
+function atoms.whitespace:stitch(_,_) end
+
+function claw.if_:stitch(stack, it_stack)
+    self.cond = stack:pop()
+    local cond_stack = stack:copy()
+    self.when_true:stitch(cond_stack, it_stack)
+    self.in_vals = {}
+    self.out_vals = {}
+    self.out_vars = {}
+    for o in iter.each(self.when_true.eff.out_eff) do
+        iter.shift(self.out_vals, cond_stack:pop())
+        local ov = seam.ssa_var()
+        iter.shift(self.in_vals, stack:pop())
+        iter.shift(self.out_vars, ov)
+        stack:push(seam.cell(ov))
+    end
+end
+
+function claw.ifelse:stitch(stack, it_stack)
+    self.cond = stack:pop()
+    local t_stack = stack:copy()
+    self.when_true:stitch(t_stack, it_stack)
+    self.t_rets = {}
+    for o in iter.each(self.when_true.eff.out_eff) do
+        iter.shift(self.t_rets, t_stack:pop())
+    end
+    self.when_false:stitch(stack, it_stack)
+    self.f_rets = {}
+    for o in iter.each(self.when_false.eff.out_eff) do
+        iter.shift(self.f_rets, stack:pop())
+    end
+    self.out_vars = {}
+    for o in iter.each(self.t_rets) do
+        local out_var = seam.ssa_var()
+        iter.push(self.out_vars, out_var)
+        stack:push(seam.cell(out_var))
+    end
+end
+
+function claw.cond:stitch(stack, it_stack)
+    for c in iter.each(self.clauses) do
+        local c_stack = stack:copy()
+        c.pred:stitch(c_stack, it_stack)
+        c.pred.cond_expr = c_stack:pop()
+        c.body:stitch(c_stack, it_stack)
+        c.out_vars = {}
+        for ov in iter.each(c.body.eff.out_eff) do
+            iter.shift(c.out_vars, c_stack:pop())
+        end
+    end
+    self.in_vars = {}
+    for _ in iter.each(self.eff.in_eff) do
+        iter.shift(self.in_vars, stack:pop())
+    end
+
+    self.out_vars = {}
+    for _ in iter.each(self.eff.out_eff) do
+        local out_var = seam.ssa_var()
+        iter.shift(self.out_vars, out_var)
+        stack:push(seam.cell(out_var))
+    end
+end
+
+end
+
+
+package.preload['trace'] = package.preload['trace'] or function(...)
+
+local seam = require("seam") -- TODO pull seam's stack out into it's own module
+local pp = require("pprint")
+local iter = require("iter")
+
+local log = seam.stack:extend()
+
+function log:init() 
+    self.enabled = false
+end
+
+function log:__call(...)
+    if not self.enabled then return end
+    -- local db_inf = debug.getinfo(2)
+    -- print(self:peek(), db_inf.source..":"..db_inf.currentline, ...)
+    print(self:peek(), ...) 
+end
+
+function log:enable() self.enabled = true end
+function log:disable() self.enabled = false end
+
+function log:error(msg)
+    error("Error "..msg.." in: \n"..iter.str(iter.reverse(self._items), "\n\t")) 
+end
+
+function log:pp(...)
+    if not self.enabled then return end
+    -- pp(self.push)
+    print(self:peek(), pp.pformat(...))
+end
+
+local l = log("Function Context")
+
+return l 
+
+end
+
+
+local onion_home = "/home/yumaikas/JD/10-19.Programming/10.Projects/10.08.onion/onion/"
+package.path = onion_home.."?.lua;" .. onion_home.."onion/?.lua;"..package.path
+local onion = require ("onion.scratch")
+
+--[[
+function repl() 
+    local _repl = onion.repl_session()
+    while _repl.should_continue() do
+        io.write("> ")
+        local to_exec = io.read("l")
+        local ok, ret = pcall(_repl.eval, to_exec)
+        if ok then
+            print(table.unpack(ret, 1, ret.n))
+        else
+            print("Error: "..tostring(ret)) 
+        end
+    end
+end
+]]
+
+
+function main()
+    -- print(io)
+
+    local argIdx = 1
+    while argIdx <= #arg do
+        if arg[argIdx] == "--lex" then
+            local f = io.open(arg[argIdx + 1], "r")
+            local str = f:read("*a")
+            local toks = lex(str)
+            for i,t in ipairs(toks) do
+                io.write("["..t .. "] ")
+            end
+            print()
+            argIdx = argIdx + 2
+        elseif arg[argIdx] == "--exec" then
+            local f = io.open(arg[argIdx + 1], "r")
+            local str = f:read("*a") f:close()
+            local code = onion.exec(str)
+            argIdx = argIdx + 2
+        elseif arg[argIdx] == "--compile" then
+            local f = io.open(arg[argIdx + 1], "r")
+            local str = f:read("*a")
+            local code = onion.compile(str)
+            local out_f = io.open(arg[argIdx + 2], "w")
+            out_f:write(code)
+            f:close()
+            out_f:close()
+            argIdx = argIdx + 3
+
+        elseif arg[argIdx] == "--comptest" then
+            for i=1,4 do
+                print(string.rep("*", 30) )
+            end
+            print()
+            local f = io.open(arg[argIdx + 1], "r")
+            local str = f:read("*a")
+            print(onion.compile(str))
+            f:close()
+            argIdx = argIdx + 2
+            print() print()
+        elseif arg[argIdx] == "--repl" then
+            -- repl()
+        else
+            error("Unrecognized arg: " .. arg[argIdx])
+        end
+    end
+end
+
+main()
