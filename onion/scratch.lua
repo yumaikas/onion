@@ -12,6 +12,7 @@ local Lex = require("lexer")
 local Env = require("resolve")
 local BaseEnv = require("basenv")
 local LuaOutput = require("lunar")
+local atoms = require("atoms")
 local seam = require("seam")
 local claw = require("claw") 
 local molecules = require("molecules")
@@ -271,7 +272,7 @@ function onion.compile(code)
     --trace:disable()
     -- for a in iter.each(ast) do trace("AST", a) end
     local out = LuaOutput()
-    ast:to_lua(out)
+    ast:to_lua(out, stack)
     trace:pop()
     return out:str()
 end
@@ -279,5 +280,39 @@ end
 function onion.exec(code, ...)
     assert(load(onion.compile(code), "t"))(...)
 end
+
+function onion.repl()
+    trace:push("TOPLEVEL")
+    local env = BaseEnv()
+    local fnEnv = {CONT=true}
+    setmetatable(fnEnv, {__index=_G})
+    local vstack = {}
+    local stack = seam.stack('toplevel')
+    local it_stack = seam.stack('toplevel it')
+    local ret = {}
+    local repl_idx = 0
+    function ret.eval(line)
+        local toks = Lex(line)
+        local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
+        ast:resolve(env)
+        ast:stack_infer()
+        ast:stitch(stack, it_stack)
+        local out = LuaOutput()
+        ast:to_lua(out, stack)
+
+        for i=1, #stack._items do
+            stack._items[i] = atoms.lit("(({...})["..i.."])") 
+        end
+        local fn = assert(load(out:str(), "repl:"..repl_idx, "t", fnEnv))
+        vstack = table.pack(fn(table.unpack(vstack)))
+        return vstack
+    end
+
+    function ret.should_continue()
+        return fnEnv.CONT
+    end
+    return ret
+end
+
 
 return onion

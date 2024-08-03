@@ -941,7 +941,7 @@ end
 
 function LuaOutput:str() return iter.str(self.out) end
 
-function claw.body:to_lua(out)
+function claw.body:to_lua(out, stack)
     for node in iter.each(self) do 
         if node.no_out then
         elseif node.to_lua then
@@ -951,6 +951,16 @@ function claw.body:to_lua(out)
             out:comment("Unsupported: ", tostring(node))
         end
     end
+
+    if stack then
+        out:write(" return ")
+        for i=1, #stack._items do
+            out:echo(stack._items[i])
+            out:write(", ")
+        end
+        out:pop()
+    end
+
 end
 
 function mangle_name(n)
@@ -2366,6 +2376,7 @@ local Lex = require("lexer")
 local Env = require("resolve")
 local BaseEnv = require("basenv")
 local LuaOutput = require("lunar")
+local atoms = require("atoms")
 local seam = require("seam")
 local claw = require("claw") 
 local molecules = require("molecules")
@@ -2625,7 +2636,7 @@ function onion.compile(code)
     --trace:disable()
     -- for a in iter.each(ast) do trace("AST", a) end
     local out = LuaOutput()
-    ast:to_lua(out)
+    ast:to_lua(out, stack)
     trace:pop()
     return out:str()
 end
@@ -2633,6 +2644,40 @@ end
 function onion.exec(code, ...)
     assert(load(onion.compile(code), "t"))(...)
 end
+
+function onion.repl()
+    trace:push("TOPLEVEL")
+    local env = BaseEnv()
+    local fnEnv = {CONT=true}
+    setmetatable(fnEnv, {__index=_G})
+    local vstack = {}
+    local stack = seam.stack('toplevel')
+    local it_stack = seam.stack('toplevel it')
+    local ret = {}
+    local repl_idx = 0
+    function ret.eval(line)
+        local toks = Lex(line)
+        local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
+        ast:resolve(env)
+        ast:stack_infer()
+        ast:stitch(stack, it_stack)
+        local out = LuaOutput()
+        ast:to_lua(out, stack)
+
+        for i=1, #stack._items do
+            stack._items[i] = atoms.lit("(({...})["..i.."])") 
+        end
+        local fn = assert(load(out:str(), "repl:"..repl_idx, "t", fnEnv))
+        vstack = table.pack(fn(table.unpack(vstack)))
+        return vstack
+    end
+
+    function ret.should_continue()
+        return fnEnv.CONT
+    end
+    return ret
+end
+
 
 return onion
 end
@@ -3125,13 +3170,10 @@ return l
 end
 
 
-local onion_home = "/home/yumaikas/JD/10-19.Programming/10.Projects/10.08.onion/onion/"
-package.path = onion_home.."?.lua;" .. onion_home.."onion/?.lua;"..package.path
 local onion = require ("onion.scratch")
 
---[[
 function repl() 
-    local _repl = onion.repl_session()
+    local _repl = onion.repl()
     while _repl.should_continue() do
         io.write("> ")
         local to_exec = io.read("l")
@@ -3143,7 +3185,6 @@ function repl()
         end
     end
 end
-]]
 
 
 function main()
@@ -3187,7 +3228,7 @@ function main()
             argIdx = argIdx + 2
             print() print()
         elseif arg[argIdx] == "--repl" then
-            -- repl()
+            repl()
         else
             error("Unrecognized arg: " .. arg[argIdx])
         end

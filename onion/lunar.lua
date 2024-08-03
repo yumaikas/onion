@@ -75,7 +75,7 @@ end
 
 function LuaOutput:str() return iter.str(self.out) end
 
-function claw.body:to_lua(out)
+function claw.body:to_lua(out, stack)
     for node in iter.each(self) do 
         if node.no_out then
         elseif node.to_lua then
@@ -85,6 +85,16 @@ function claw.body:to_lua(out)
             out:comment("Unsupported: ", tostring(node))
         end
     end
+
+    if stack then
+        out:write(" return ")
+        for i=1, #stack._items do
+            out:echo(stack._items[i])
+            out:write(", ")
+        end
+        out:pop()
+    end
+
 end
 
 function mangle_name(n)
