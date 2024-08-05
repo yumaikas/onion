@@ -14,6 +14,16 @@ function repl()
     end
 end
 
+function eval_line(line) 
+    local _repl = onion.repl()
+    local ok, ret = pcall(_repl.eval, line)
+    if ok then
+        print(table.unpack(ret, 1, ret.n))
+    else
+        print("Error: "..tostring(ret)) 
+    end
+end
+
 
 function main()
     -- print(io)
@@ -29,6 +39,8 @@ function main()
             end
             print()
             argIdx = argIdx + 2
+        elseif arg[argIdx] == "-e" or arg[argIdx] == "--eval" then
+            argIdx = argIdx + 2
         elseif arg[argIdx] == "--exec" then
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a") f:close()
@@ -43,7 +55,6 @@ function main()
             f:close()
             out_f:close()
             argIdx = argIdx + 3
-
         elseif arg[argIdx] == "--comptest" then
             for i=1,4 do
                 print(string.rep("*", 30) )

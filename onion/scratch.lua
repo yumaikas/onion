@@ -62,7 +62,7 @@ function chunk(t, end_match, end_name)
             t:next()
         end
     end
-    error("Expected "..end_name.." before end of tokens!")
+    error("In "..trace:peek().." expected "..end_name.." before end of tokens!")
 end
 
 local call_eff = {}
@@ -254,7 +254,7 @@ function parse.of_chunk(t, end_, end_name)
             t:next()
         end
     end
-    error("Expected "..(end_name or "nil" ).." before end of code!")
+    error("In "..trace:peek().." expected "..(end_name or "nil" ).." before end of code!")
 end
 
 function onion.compile(code)
