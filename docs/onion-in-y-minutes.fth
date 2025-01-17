@@ -84,7 +84,7 @@ ctr ctr ctr print(***)  \ prints "1    2    3"
 
 \ Will error with "expected **\*, got [ * * - * ]" 
 \ TODO: Fix error message in compiler to better match existing effects
-: fails-to-compile (*\**) + ; 
+\ : fails-to-compile (*\**) + ; 
 
 \ Onion does this in a way that prevents runtime stack underflows
 \ so that it can emit "straight line" lua, aka lua that doesn't have
@@ -108,12 +108,12 @@ ctr ctr ctr print(***)  \ prints "1    2    3"
 \ of outupts
 
 4 dX 2 mod? if 1 + then \ This is valid
-4 dX 3 mod? if + then \ This is not, because + has an effect of (**\*)
+\ 4 dX 3 mod? if + then \ This is not, because + has an effect of (**\*)
 
 \ This is a specialization of if/else/then statements
 \ The rule for them is that the true and false arms 
 \ of the statement need to be the same overall effect on the stack
-4 dx 2 mod? if "even" else "odd" then print(*)
+4 dX 2 mod? if "even" else "odd" then print(*)
 
 \ This is why if statements without an else branch have to be balanced
 \ since the implicit "else" is not changing the stack, so the stack
@@ -121,7 +121,7 @@ ctr ctr ctr print(***)  \ prints "1    2    3"
 
 \ Cond is the most general case of a conditional statement
 
-4 dx { r }
+4 dX { r }
 cond 
     \ For now, the predicate/condition clause can't take any inputs
     \ and must only output one value. 
@@ -210,12 +210,14 @@ table [ ] { tbl }
 : <xy> ( x y -- t ) t[ to-pos ] ;
 
 
+: ++t ( # -- ) >>t 1 + >>t ;
+
 \ Finally, there's a way to use this to more easily construct module-style tables
 \ ::name names the value on the top of the `it` stack, which allows `::` to
 \ define words that are inside that table
 t[ ::bubbles
 :: spawn (**\) bubbles [ t[ to-pos 0 >>t ] , ]. ;
-:: tic (\) bubbles each [ 0 -1 mov ++t ]. ;
+:: tic (\) bubbles each [ 0 -1 mov ++t ]. for ;
 ]. 
 
 

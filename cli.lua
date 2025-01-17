@@ -29,6 +29,7 @@ function main()
     -- print(io)
 
     local argIdx = 1
+    local lang = "lua"
     while argIdx <= #arg do
         if arg[argIdx] == "--lex" then
             local f = io.open(arg[argIdx + 1], "r")
@@ -41,6 +42,9 @@ function main()
             argIdx = argIdx + 2
         elseif arg[argIdx] == "-e" or arg[argIdx] == "--eval" then
             argIdx = argIdx + 2
+        elseif arg[argIdx] == "--lang" then
+            lang = arg[argIdx + 1]
+            argIdx = argIdx + 2
         elseif arg[argIdx] == "--exec" then
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a") f:close()
@@ -49,20 +53,26 @@ function main()
         elseif arg[argIdx] == "--compile" then
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a")
-            local code = onion.compile(str)
+            local code = onion.compile(str, lang)
             local out_f = io.open(arg[argIdx + 2], "w")
             out_f:write(code)
             f:close()
             out_f:close()
             argIdx = argIdx + 3
+        elseif arg[argIdx] == "--compstr"  then
+            print()
+            local str = arg[argIdx + 1]
+            print(onion.compile(str, lang))
+            argIdx = argIdx + 2
+            print() print()
         elseif arg[argIdx] == "--comptest" then
-            for i=1,4 do
-                print(string.rep("*", 30) )
-            end
+            -- for i=1,4 do
+            --    print(string.rep("*", 30) )
+            -- end
             print()
             local f = io.open(arg[argIdx + 1], "r")
             local str = f:read("*a")
-            print(onion.compile(str))
+            print(onion.compile(str, lang))
             f:close()
             argIdx = argIdx + 2
             print() print()

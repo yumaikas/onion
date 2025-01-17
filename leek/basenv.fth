@@ -3,7 +3,9 @@ behaves require (*\*)
 "resolve" require .Env { Env }
 "atoms" require { atoms } behaves atoms.assign_op (*\*) behaves atoms.bool (*\*) 
 "iter" require .w { w } behaves w (*\*)
-"molecules" require { molecules } behaves molecules.binop (*\*) behaves molecules.shuffle (***\*)
+"molecules" require { molecules } 
+behaves molecules.binop (*\*) 
+behaves molecules.shuffle (***\*)
 
 : makeBaseEnv ( -- env )
     Env(\*) { baseEnv }

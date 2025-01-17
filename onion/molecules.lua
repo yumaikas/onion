@@ -53,6 +53,7 @@ mol('get', '()', '(s) -> "get"') e(2, 1) --
 mol('put', '()', '(s) -> "put"') e(3, 0) --
 mol('len', '()', '(s) -> "len"') e(1,1) --
 mol('_not', '()', '(s) -> "not"') e(1,1) --
+mol('await', '()', '(s) -> "await"') e(1,1) --
 
 mol('call', [[(s, name, has_it, inputs, outputs) 
 s.name=name s.has_it=has_it s.inputs=inputs s.outputs=outputs s:init()

@@ -12,6 +12,7 @@ local Lex = require("lexer")
 local Env = require("resolve")
 local BaseEnv = require("basenv")
 local LuaOutput = require("lunar")
+local JsOutput = require("spider")
 local atoms = require("atoms")
 local seam = require("seam")
 local claw = require("claw") 
@@ -175,8 +176,9 @@ function parse.of_chunk(t, end_, end_name)
             local key = t:tok() t:next()
             local behavoior = t:tok() t:next()
             body:compile(molecules.behaves(key, behavoior))
-        elseif t:is(":") or t:is("::") then
-            local is_it_fn = t:is("::")
+        elseif t:is(":") or t:is("::") or t:is("async:") or t:is("async::") then
+            local is_it_fn = t:is("::") or t:is("async::")
+            local is_async = t:is("async:") or t:is("async::")
             t:next()
             local name = cond(t:any_of{"(", "{"} or t:can(short_eff.is), claw.anon_fn, t:tok())
             trace:push(tostring(name))
@@ -210,6 +212,7 @@ function parse.of_chunk(t, end_, end_name)
             fn_body = parse.of_chunk(t, ";", "end of "..tostring(name))
             local fn = claw.func(name, inputs, outputs, fn_body)
             fn.input_assigns = input_assigns
+            fn.is_async = is_async
             body:compile(fn)
             t:next()
             trace:pop()
@@ -235,6 +238,13 @@ function parse.of_chunk(t, end_, end_name)
             local loop_body = parse.of_chunk(t, "for", "for")
             body:compile(claw.each_loop(loop_body))
             t:next()
+        elseif t:is("each/await") then
+            t:next()
+            local loop_body = parse.of_chunk(t, "for", "for")
+            local node = claw.each_loop(loop_body);
+            node.is_await = true
+            body:compile(node)
+            t:next()
         elseif t:can(iter_eff.is) then
             local w, i, o = iter_eff.parse(t:tok())
             t:next()
@@ -257,9 +267,63 @@ function parse.of_chunk(t, end_, end_name)
     error("In "..trace:peek().." expected "..(end_name or "nil" ).." before end of code!")
 end
 
-function onion.compile(code)
+local js_plat = [=[
+: , (#*\) it :push(*) ; 
+: s/join { # -- ret } it :join(\*) ;
+: str (*\*) :toString(\*) ;
+
+: print (*\) @console :log(*\) ;
+
+: max (**\*) Math.max(**\*) ;
+: min (**\*) Math.min(**\*) ;
+
+: randint { l h -- res } 
+ l Math.ceil(*\*) { L }
+ h Math.floor(*\*) { H }
+ Math.random(\*) H L - L + * ;
+
+: randf ( -- res ) Math.random(\*) ;
+
+: array ( -- arr ) Array(\*) ;
+
+]=]
+
+local lua_plat = [=[
+: , (#*\) table.insert(#*) ;
+: s/join (#\*) table.concat(#\*) ;
+: str (*\*) tostring(*\*) ;
+
+behaves print (*\)
+
+: max (**\*) math.max(**\*) ;
+: min (**\*) math.min(**\*) ;
+
+: randint (**\*) math.random(**\*) math.floor(*\*) ;
+: randf (\*) math.random(\*) ;
+
+: array (\*) table ;
+]=]
+
+local stdlib = [=[
+: between { i ra rb -- ? } 
+    i ra rb min >=
+    i ra rb max <= and ;
+
+]=]
+
+function get_plat(lang)
+    if lang == "js" then
+        return js_plat
+    else
+        return lua_plat
+    end
+end
+
+function onion.compile(code, lang)
+    lang = lang or "lua"
     trace:push("TOPLEVEL")
-    local toks = Lex(code)
+
+    local toks = Lex(get_plat(lang)..stdlib..code)
     local ast = parse.of_chunk(toks, Lex.EOF, 'EOF')
     local env = BaseEnv()
     ast:resolve(env)
@@ -271,10 +335,19 @@ function onion.compile(code)
     -- trace:pp(ast)
     --trace:disable()
     -- for a in iter.each(ast) do trace("AST", a) end
-    local out = LuaOutput()
-    ast:to_lua(out, stack)
-    trace:pop()
-    return out:str()
+    if lang == "lua" then
+        local out = LuaOutput()
+        ast:to_lua(out, stack)
+        trace:pop()
+        return out:str()
+    elseif lang == "js" then
+        local out = JsOutput()
+        ast:to_js(out, stack)
+        trace:pop()
+        return out:str()
+    else
+        error("Unsupported output language: "..lang)
+    end
 end
 
 function onion.exec(code, ...)

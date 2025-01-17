@@ -111,7 +111,7 @@ function claw.body:resolve(env)
             elseif node.tok:match('[\r\n]') then
                 self._items[idx] = atoms.whitespace(node.tok)
             else
-                error("Unable to resolve token: ["..node.tok.."] in "..trace:peek())
+                error("Unable to resolve token: ["..node.tok.."] in "..tostring(trace:peek()))
             end
         else
             trace("RESOLVING: "..tostring(node))

@@ -1,4 +1,4 @@
-: dX (*\*) 1 swap math.random(**\*) ;
+: dX (*\*) 1 swap randint ;
 4 dX { r }
 1
 cond 
@@ -10,11 +10,11 @@ cond
     r 3 eq? -> "three" .. of
     r 4 eq? -> "four" .. of
     \ TODO: Enforce a default clause if any clauses have outputs?
-    true -> "" ..  of
-end print(*)
+    true -> "other" ..  of
+end print
 
 table { t }
 t 1 >a 
-t .a print(*)
+t .a print
 "b" { k }
 t k 2 put \ Use a variable as a key into a table

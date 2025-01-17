@@ -34,8 +34,3 @@ behaves atoms.string (*\*)
 behaves atoms.bool (*\*)
 behaves atoms.whitespace (*\*)
 behaves atoms.assign_op (*\*)
-
-
-
-
-

@@ -86,6 +86,12 @@ function molecules._not:stitch(stack, it_stack)
     self.no_out = true
 end
 
+function molecules.await:stitch(stack, it_stack)
+    self.obj = stack:pop()
+    stack:push(seam.cell(self))
+    self.no_out = true
+end
+
 
 function molecules.get:stitch(stack, it_stack)
     self.obj = stack:pop()
