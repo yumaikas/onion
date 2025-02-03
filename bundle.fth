@@ -9,7 +9,7 @@
 
 "#!/usr/bin/env lua\n" echo
 
-\ These exist because baseline lua interpreters don't come with a directory lsiting function
+\ These exist because baseline lua interpreters don't come with a directory listing function
 "atoms" "onion/atoms.lua" pack
 "basenv" "onion/basenv.lua" pack
 "check_stack" "onion/check_stack.lua" pack
@@ -17,6 +17,7 @@
 "claw" "onion/claw.lua" pack
 "effects" "onion/effects.lua" pack
 "eff" "onion/eff.lua" pack
+"tests" "onion/tests.lua" pack
 "iter" "onion/iter.lua" pack
 "lexer" "onion/lexer.lua" pack
 "lunar" "onion/lunar.lua" pack
@@ -24,6 +25,7 @@
 "pprint" "onion/pprint.lua" pack
 "record" "onion/record.lua" pack
 "resolve" "onion/resolve.lua" pack
+"spider" "onion/spider.lua" pack
 "onion.scratch" "onion/scratch.lua" pack
 "seam" "onion/seam.lua" pack
 "stitch" "onion/stitch.lua" pack

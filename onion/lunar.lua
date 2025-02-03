@@ -306,7 +306,7 @@ function claw.func:to_lua(out)
 end
 
 function molecules.assign_op:to_lua(out)
-    out:write(self.var, " = ", self.var, self.op)
+    out:write(self.var, " = ", self.var, " ", self.op, " ")
     out:echo(self.value)
 end
 

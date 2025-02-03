@@ -98,21 +98,6 @@ function iter_eff.is(word)
     --trace:pp(word)
     -- trace.disable()
     return (not not string.find(word, "[^[]*%[#?%**\\[*_]*%]$")) end
-function tests.iter_effs_parse()
-    function t(a, b) assert(iter_eff.is(a), b) end
-    t("[*\\*]", "1 to 1")
-    t("[\\*]", "0 to 1")
-    t("[**\\*]", "2 to 1")
-    t("[#\\*]", "it to 1")
-    t("[#\\*_]", "it to 1,_")
-end
-function tests.word_iter_effs_parse()
-    function t(a, b) assert(iter_eff.is(a), b) end
-    t("ipairs[*\\*]", "1 to 1")
-    t(":nodes[\\*]", "0 to 1")
-    t("derp[**\\*]", "2 to 1")
-    t("ipairs[#\\*]", "it to 1")
-end
 
 function iter_eff.parse(word)
     if not iter_eff.is(word) then

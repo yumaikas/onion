@@ -1,0 +1,19 @@
+alias: clock #( os.clock )
+
+: babbage
+  var n
+  1 -> n
+  begin
+    n 1 + -> n
+    n n *
+    1000000 %
+    269696 =
+  until n ;
+
+clock
+1 500 to: i
+  babbage drop
+end
+clock swap ( started ) - . cr
+
+babbage . cr
